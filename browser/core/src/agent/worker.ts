@@ -1,5 +1,4 @@
 import {
-  InboxDoc,
   LiveDoc,
   MemoryStorage,
   type Storage,
@@ -15,7 +14,7 @@ import { Binding, FollowUps, heldBy } from "./documents";
 import { connectGalaxy } from "./galaxy";
 import type { GalaxyStatus } from "./prompt";
 import { browserPython } from "./python";
-import { context, Runtime, type Placement, type RuntimeConfig } from "./runtime";
+import { context, drawnEvents, Runtime, type Placement, type RuntimeConfig } from "./runtime";
 import type { SessionDocument } from "./saved";
 import type { RecordSummary } from "./notebook";
 import { DEFAULT_BRAND } from "./brand";
@@ -31,6 +30,7 @@ export interface OpenRequest {
   saved?: { id: string; document: SessionDocument };
   /** Take the conversation over from the tab that has it open. */
   steal?: boolean;
+  pool?: string;
 }
 
 /** Why follow-ups are waiting for the user, when they are. */
@@ -107,16 +107,15 @@ function decline(conversation: ConversationId) {
   }
 }
 
-/** Follow-ups queued for the user while the conversation is idle, and why. */
+/** Follow-ups waiting for the user while the conversation is idle, and why. */
 async function postHeld() {
   if (!runtime || !conversation) return;
   const id = conversation.id;
-  const [policy, inbox, live] = await Promise.all([
+  const [policy, live] = await Promise.all([
     runtime.harness.snapshot(FollowUps, id, context),
-    runtime.harness.snapshot(InboxDoc, id, context),
     runtime.harness.snapshot(LiveDoc, id, context),
   ]);
-  const queued = !live?.run && (inbox?.items ?? []).some((item) => item.mode !== "write");
+  const queued = !live?.run && (policy?.pending.length ?? 0) > 0;
   const next: Waiting = queued ? heldBy(policy) : undefined;
   if (next !== held) {
     held = next;
@@ -131,9 +130,9 @@ async function attach(next: Conversation) {
   held = undefined;
   const harness = runtime!.harness;
   const stream = await watchEvents(harness, next.id, context);
-  post({ type: "events", events: [stream.snapshot] });
+  post({ type: "events", events: await drawnEvents(next, [stream.snapshot], context) });
   stream.start(async (events) => {
-    post({ type: "events", events });
+    post({ type: "events", events: await drawnEvents(next, events, context) });
     if (events.some((e) => e.type === "run_end")) decline(next.id);
     await postHeld();
   });
@@ -153,6 +152,8 @@ async function attach(next: Conversation) {
       }
     }
     known = now;
+    // A watch that settles while the conversation is held keeps its follow-up in the same commit.
+    await postHeld();
   });
   await postHeld();
   detach = async () => {
@@ -180,7 +181,8 @@ async function open(request: OpenRequest) {
   let storage: Storage = new MemoryStorage();
   if (user !== undefined) {
     // The file pool is one per origin, whichever Galaxy user opens it, so the tab lock is too.
-    await holdStorage(`${brand.id}:storage`, {
+    const pool = request.pool ?? brand.id;
+    await holdStorage(`${pool}:storage`, {
       steal: request.steal,
       waiting: () => post({ type: "waiting" }),
       // Ending the worker lets go of the files it holds open, which the other tab needs.
@@ -189,7 +191,7 @@ async function open(request: OpenRequest) {
         self.close();
       },
     });
-    ({ storage, unkept } = await openStorage(`${brand.id}-${user}`, brand.id));
+    ({ storage, unkept } = await openStorage(`${pool}-${user}`, pool));
   }
   runtime = await Runtime.open({
     storage,

@@ -17,13 +17,7 @@ import {
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { describe, expect, it } from "vitest";
 
-import {
-  DATASET_TERMINAL_STATES,
-  INVOCATION_FINISHED_STATES,
-  JOB_SETTLED_STATES,
-} from "@galaxyproject/galaxy-ops/browser";
-
-import { FollowUps } from "./documents";
+import { FollowUps, MAX_AUTO_FOLLOW_UPS } from "./documents";
 import { DEFAULT_BRAND, followUpMark } from "./brand";
 
 const FOLLOW_UP_MARK = followUpMark(DEFAULT_BRAND);
@@ -307,7 +301,7 @@ describe("the watch task", () => {
     await harness.close(context);
   });
 
-  it("queues its follow-up for the user while follow-ups are paused", async () => {
+  it("keeps its follow-up for the user while follow-ups are paused, and submits nothing", async () => {
     const { harness, conversation, task } = await submitted(
       new MemoryStorage(),
       () => "ok",
@@ -316,23 +310,46 @@ describe("the watch task", () => {
     );
     await harness.waitForTask(task, context);
     expect(await followUps(conversation)).toEqual([]);
-    const inbox = await harness.snapshot(InboxDoc, conversation.id, context);
-    expect(inbox?.items).toHaveLength(1);
-    expect((await harness.snapshot(FollowUps, conversation.id, context))?.automatic).toBe(0);
+    expect((await harness.snapshot(InboxDoc, conversation.id, context))?.items ?? []).toEqual([]);
+    const policy = await harness.snapshot(FollowUps, conversation.id, context);
+    expect(policy?.pending.map((p) => p.id)).toEqual(["watch:job:j1"]);
+    expect(String(policy?.pending[0].content).startsWith(FOLLOW_UP_MARK)).toBe(true);
+    expect(policy?.automatic).toBe(0);
+    expect((await harness.inspect(context)).submissions).toEqual([]);
     await harness.close(context);
   });
 
-  it("keeps watching a held conversation's work, and queues its follow-up for the user", async () => {
+  it("keeps its follow-up for the user past the cap", async () => {
+    const { harness, watch } = await watching(new MemoryStorage(), () => "ok");
+    const created = await harness.createConversation({ ownership: { kind: "ownerless" } }, context);
+    const task = await created.commit(async (tx) => {
+      (await tx.doc(FollowUps, created.id)).automatic = MAX_AUTO_FOLLOW_UPS;
+      return tx.createTask(watch, JOB, {
+        ownership: { kind: "conversation" },
+        conversationId: created.id,
+        background: true,
+      });
+    }, context);
+    harness.resume();
+    await harness.waitForTask(task, context);
+    expect(await followUps(created)).toEqual([]);
+    const policy = await harness.snapshot(FollowUps, created.id, context);
+    expect(policy?.pending).toHaveLength(1);
+    expect(policy?.automatic).toBe(MAX_AUTO_FOLLOW_UPS);
+    await harness.close(context);
+  });
+
+  it("keeps watching a held conversation's work, and keeps its follow-up for the user", async () => {
     let state = "running";
     const { harness, conversation, task } = await submitted(new MemoryStorage(), () => state);
-    await hold([conversation]);
+    await hold(harness, [conversation]);
     await new Promise((r) => setTimeout(r, 30));
     expect(await watchedBy(harness, conversation.id, context)).toHaveLength(1);
     state = "ok";
     const done = await harness.waitForTask(task, context);
     expect(done.state.outcome).toMatchObject({ status: "completed" });
     expect(await followUps(conversation)).toEqual([]);
-    expect((await harness.snapshot(InboxDoc, conversation.id, context))?.items).toHaveLength(1);
+    expect((await harness.snapshot(FollowUps, conversation.id, context))?.pending).toHaveLength(1);
     await harness.close(context);
   });
 

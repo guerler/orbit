@@ -65,8 +65,8 @@ describe("a flavor with no session store", () => {
     expect(container.querySelector("#save-btn")).toBeNull();
     worker.say({ type: "ready", unkept: "no private file system" } as WorkerMessage);
     worker.say({ type: "recoverable", records: [] } as unknown as WorkerMessage);
-    expect(container.textContent).toContain("so it ends when the page closes.");
-    expect(container.textContent).toContain("Continue one of its records, or start new.");
+    expect(container.textContent).toContain("so this one ends when the page closes.");
+    expect(container.textContent).toContain("starts a fresh chat without its earlier transcript.");
     expect(container.textContent).not.toMatch(/\bSave\b/);
   });
 
@@ -78,6 +78,88 @@ describe("a flavor with no session store", () => {
       sessions: { save: async () => "id", savedState: () => {}, savedNote: "Saved." },
     });
     expect(container.querySelector("#save-btn")).not.toBeNull();
+  });
+});
+
+describe("the files the worker keeps sessions in", () => {
+  async function poolOf(pool?: string) {
+    const worker = fakeWorker();
+    await mountOrbitBrowser(container, {
+      ...base,
+      createWorker: () => worker as unknown as Worker,
+      launch: async () => ({ historyId: "h1" }),
+      ...(pool ? { pool } : {}),
+    });
+    return worker.sent[0]?.request;
+  }
+
+  it("opens the worker on the pool the flavor names, and on none otherwise", async () => {
+    expect(await poolOf("olit-chat")).toMatchObject({ pool: "olit-chat" });
+    container.replaceChildren();
+    expect(await poolOf()).not.toHaveProperty("pool");
+  });
+});
+
+describe("saved sessions in this browser", () => {
+  const document = { olit_session: 1, session: {}, entries: [] } as any;
+  /** Returns what the worker opens when launching save `id` from store `kind`. */
+  async function opened(kind: string, id: string) {
+    const worker = fakeWorker();
+    await mountOrbitBrowser(container, {
+      ...base,
+      createWorker: () => worker as unknown as Worker,
+      launch: async () => ({ saved: { id, document } }),
+      sessions: { kind, save: async () => id, savedState: () => {}, savedNote: "Saved." },
+    });
+    return worker.sent[0]?.request?.saved;
+  }
+
+  // A chat and a visualization can have the same id.
+  it("keys saves by store and id", async () => {
+    expect(await opened("chat", "f2db41e1fa331b3e")).toEqual({
+      id: "chat/f2db41e1fa331b3e",
+      document,
+    });
+    container.replaceChildren();
+    expect(await opened("visualization", "f2db41e1fa331b3e")).toEqual({
+      id: "visualization/f2db41e1fa331b3e",
+      document,
+    });
+  });
+
+  it("keys a new save by store and id", async () => {
+    const worker = fakeWorker();
+    await mountOrbitBrowser(container, {
+      ...base,
+      createWorker: () => worker as unknown as Worker,
+      launch: async () => ({ historyId: "h1" }),
+      sessions: { kind: "chat", save: async () => "c1", savedState: () => {}, savedNote: "Saved." },
+    });
+    worker.say({ type: "ready", galaxy: { connected: true } } as unknown as WorkerMessage);
+    // Add a turn so there is something to save.
+    worker.say({
+      type: "events",
+      events: [
+        {
+          type: "snapshot",
+          entries: [{ kind: "pi.user", model: [{ role: "user", content: "hello" }] }],
+          usage: { models: {} },
+        },
+      ],
+    } as unknown as WorkerMessage);
+    container.querySelector<HTMLButtonElement>("#save-btn")!.click();
+    const exported = await vi.waitFor(() => {
+      const found = worker.sent.find((m) => m.type === "export");
+      if (!found) throw new Error("not exported yet");
+      return found;
+    });
+    worker.say({ type: "reply", id: exported.id, value: document });
+    const saved = await vi.waitFor(() => {
+      const found = worker.sent.find((m) => m.type === "saved");
+      if (!found) throw new Error("not saved yet");
+      return found;
+    });
+    expect(saved.savedId).toBe("chat/c1");
   });
 });
 
