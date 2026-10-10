@@ -2,7 +2,7 @@
  * Saves conversations as Galaxy chats: the chat's document holds the whole session, and its turns
  * are what Galaxy lists.
  *
- * Saving is explicit.
+ * Saving is explicit, as it was for GalaxyAI's own chats.
  */
 
 import {
@@ -26,7 +26,7 @@ export interface Turn {
   response: string;
 }
 
-/** A message of a chat saved without a session, as `api/chat/exchange/{id}/messages` returns it. */
+/** A message from an older GalaxyAI chat, as `api/chat/exchange/{id}/messages` returns it. */
 export interface HeldMessage {
   role: "user" | "assistant";
   content: string;
@@ -74,8 +74,8 @@ const NO_USAGE = {
 };
 
 /**
- * Converts a chat saved without a session into one Olit can continue, from its questions and
- * answers.
+ * Converts an older GalaxyAI chat into a session Olit can continue. Galaxy stored only the
+ * questions and answers.
  */
 export function heldSession(messages: readonly HeldMessage[], now = new Date()): SessionDocument {
   const when = (message: HeldMessage) => Date.parse(message.timestamp ?? "") || now.getTime();
@@ -117,21 +117,18 @@ export function heldSession(messages: readonly HeldMessage[], now = new Date()):
   };
 }
 
-/** Shown when a chat saved without a session opens. */
+/** Shown when opening an older GalaxyAI chat. */
 export const HELD_NOTE =
-  "This chat has its questions and answers only. Saving creates a new chat and keeps this one.";
-
-/** Shown when a chat saved by another version of Olit opens. */
-export const OTHER_VERSION_NOTE =
-  "This chat was saved by another version of Olit, so it shows its questions and answers only. Saving creates a new chat and keeps this one.";
+  "This conversation was held by GalaxyAI before Olit: its questions and answers are here, " +
+  "the steps behind them are not. Saving keeps it as a new chat and leaves the original.";
 
 export const chats: Store = {
   kind: "chat",
   wording: {
-    savedNote: "Saved. Open it from your chats on any device.",
-    label: "Save this conversation to reopen it on any device",
-    keepHint: "Save it to keep it.",
-    reopenHint: "To reopen a saved conversation, open it from your chats.",
+    savedNote: "Saved. Open it from GalaxyAI's chats on any device.",
+    label: "Save this conversation to GalaxyAI's chats to reopen it on any device",
+    keepHint: "Save it to GalaxyAI's chats to keep it.",
+    reopenHint: "To reopen a saved conversation, open it from GalaxyAI's chats.",
   },
   connect(galaxy: Galaxy): Saves {
     async function create(payload: object): Promise<string> {
@@ -142,16 +139,14 @@ export const chats: Store = {
       async load(id) {
         // Galaxy answers only with the signed-in user's own chats.
         const body = await galaxy.get(`api/chat/exchange/${segment(id)}/document`);
-        const saved = body?.document;
         let found: Opened | null = null;
-        if (isSessionDocument(saved)) {
-          found = { document: saved };
-        } else if (saved === null || typeof saved?.olit_session === "number") {
+        if (isSessionDocument(body?.document)) {
+          found = { document: body.document };
+        } else if (body?.document === null) {
           const messages: HeldMessage[] = await galaxy.get(
             `api/chat/exchange/${segment(id)}/messages`,
           );
-          const note = saved === null ? HELD_NOTE : OTHER_VERSION_NOTE;
-          found = { document: heldSession(messages), held: { note } };
+          found = { document: heldSession(messages), held: { note: HELD_NOTE } };
         }
         return found;
       },
@@ -163,7 +158,8 @@ export const chats: Store = {
         const payload = { agent_type: AGENT_TYPE, messages, document };
         let saved: string;
         if (id) {
-          // Galaxy replaces only chats saved with a session; any other is saved as a new chat.
+          // Galaxy only replaces chats Olit saved. If the chat is gone or came from GalaxyAI,
+          // save a new one.
           saved = await galaxy.put(`api/chat/exchange/${segment(id)}`, payload).then(
             () => id,
             (e) => {

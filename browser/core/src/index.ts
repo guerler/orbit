@@ -3,8 +3,8 @@
  * imports from here rather than `/agent`, whose modules would otherwise land in its bundle.
  */
 export { DEFAULT_BRAND, type Brand } from "./agent/brand";
-export { segment, type Galaxy } from "./agent/galaxy";
-export { isSessionDocument, type SessionDocument } from "./agent/saved";
+export { HttpError, segment, type Galaxy } from "./agent/galaxy";
+export { isSessionDocument, SCHEMA, type SessionDocument } from "./agent/saved";
 export {
   cannotStart,
   currentHistoryLaunch,

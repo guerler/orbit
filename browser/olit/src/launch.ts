@@ -44,7 +44,6 @@ export function shellOptions(
     createWorker: () => new Worker(new URL("./worker.ts", import.meta.url), { type: "module" }),
     ...OLIT_ARTIFACTS,
     brand: OLIT_BRAND,
-    ...(store.kind === "chat" ? { pool: `${OLIT_BRAND.id}-chat` } : {}),
     launch: (galaxy) => {
       saves = store.connect(galaxy);
       return launch(galaxy, saves, request);
@@ -86,7 +85,7 @@ async function launch(
   let context: LaunchContext;
   if (notYours) {
     context = {
-      stop: `Only your own saved conversations can be opened, and ${savedId} is not one: ${notYours}.`,
+      stop: `Olit opens only your own saved conversations, and ${savedId} is not one: ${notYours}.`,
     };
   } else if (opened) {
     context = await continued(galaxy, savedId!, opened);
@@ -102,8 +101,8 @@ async function launch(
 }
 
 /**
- * Opens a saved conversation in its own history. A chat saved without a session continues in the
- * current history.
+ * Opens a saved conversation in its own history. A chat Olit did not save continues in the current
+ * history.
  */
 async function continued(galaxy: Galaxy, id: string, opened: Opened): Promise<LaunchContext> {
   let context: LaunchContext;
