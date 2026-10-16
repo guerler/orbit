@@ -191,6 +191,7 @@ export function agentModels(env: Record<string, string | undefined> = {}) {
     fetchDeferred: (...args: Parameters<Models["fetchDeferred"]>) => inner.fetchDeferred(...args),
     cancelDeferred: (...args: Parameters<Models["cancelDeferred"]>) =>
       inner.cancelDeferred(...args),
+    getAuth: inner.getAuth.bind(inner),
   } as unknown as Models;
 
   /** Make `target` reachable through `models`; its model and the key it sends. */

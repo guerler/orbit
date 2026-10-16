@@ -1,4 +1,4 @@
-import type { Context as Chord } from "@earendil-works/chord";
+import type { Context as Chord } from "@earendil-works/chord/context";
 import type { UserMessage } from "@earendil-works/pi-ai";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import {
@@ -9,7 +9,6 @@ import {
   SystemEntry,
   UsageDoc,
   UserEntry,
-  type AgentEvent,
   type Conversation,
   type ConversationId,
   type Cursor,
@@ -56,7 +55,6 @@ const ARTIFACT_LIMIT = 20;
 export const LOOP = {
   toolExecution: "sequential",
   followUpMode: "all",
-  promptPlacement: "lead",
 } as const;
 
 /**
@@ -76,38 +74,6 @@ export async function artifactsIn(
     cursor = page.next;
   } while (cursor && found.length < ARTIFACT_LIMIT);
   return found.slice(-ARTIFACT_LIMIT);
-}
-
-/**
- * Events as the page draws them. A snapshot past a compaction holds only what the model is given,
- * so it carries the conversation's whole history instead, through the snapshot's newest entry and
- * in the order it was written, the summary where it landed.
- */
-export async function drawnEvents(
-  conversation: Pick<Conversation, "entries">,
-  events: readonly AgentEvent[],
-  ctx: Chord,
-): Promise<AgentEvent[]> {
-  const drawn: AgentEvent[] = [];
-  for (const event of events) {
-    if (event.type !== "snapshot" || event.entries[0]?.head === undefined) {
-      drawn.push(event);
-      continue;
-    }
-    const maxEntryId = event.entries.reduce(
-      (newest, entry) => (entry.id > newest ? entry.id : newest),
-      event.entries[0].id,
-    );
-    const history: EntryRecord[] = [];
-    let cursor: Cursor | undefined;
-    do {
-      const page = await conversation.entries({ maxEntryId }, 500, cursor, ctx);
-      history.push(...page.items);
-      cursor = page.next;
-    } while (cursor !== undefined);
-    drawn.push({ ...event, entries: history.sort((a, b) => a.id - b.id) });
-  }
-  return drawn;
 }
 
 export interface RuntimeConfig extends LlmConfig {
@@ -265,7 +231,6 @@ export class Runtime {
         registry,
         settings: {
           ...LOOP,
-          maxTurns: config.max_steps || MAX_STEPS,
           get compaction() {
             const reserveTokens =
               current.config.ai_reserve_tokens ||
@@ -299,12 +264,16 @@ export class Runtime {
     return this.current.model;
   }
 
+  private get agent() {
+    return { model: this.model, maxTurns: this.current.config.max_steps || MAX_STEPS };
+  }
+
   /** Switch provider or model for `conversation`, and for every conversation opened after. */
   async switchModel(conversation: Conversation, config: LlmConfig): Promise<void> {
     const merged = { ...this.current.config, ...config };
     const next = await target(merged, this.env);
     Object.assign(this.current, { config: merged, target: next, ...(await this.connect(next)) });
-    await conversation.configure({ model: this.model }, context);
+    await conversation.configure(this.agent, context);
   }
 
   /** A new conversation for `placement`, which its history continues from now on. */
@@ -313,7 +282,7 @@ export class Runtime {
       {
         ownership: { kind: "ownerless" },
         agent: {
-          model: this.model,
+          ...this.agent,
           ...(placement.instructions ? { instructions: placement.instructions } : {}),
         },
         init: async (tx, id) => {
@@ -342,7 +311,7 @@ export class Runtime {
         ? undefined
         : await this.harness.conversation(known as ConversationId, context);
     if (found) {
-      await found.configure({ model: this.model }, context);
+      await found.configure(this.agent, context);
       if (placement.datasetId) {
         await found.commit(async (tx) => {
           (await tx.doc(Binding, found.id)).datasetId = placement.datasetId;
@@ -455,14 +424,14 @@ export class Runtime {
     if (known && known.updatedAt === document.session.updatedAt) {
       const found = await this.harness.conversation(known.conversation as ConversationId, context);
       if (found && (await lastEntry(found)) === known.last) {
-        await found.configure({ model: this.model }, context);
+        await found.configure(this.agent, context);
         return found;
       }
     }
     const opened = await this.harness.createConversation(
       {
         ownership: { kind: "ownerless" },
-        agent: { model: this.model },
+        agent: this.agent,
         init: async (tx, id) => {
           const ids: EntryId[] = [];
           for (const { head, ...entry } of document.entries) {

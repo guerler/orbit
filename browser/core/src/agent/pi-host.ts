@@ -7,14 +7,10 @@
  * no seam is accepted and recorded as a note rather than failing, so a conformance run can list
  * every reach Orbit makes past this shell.
  */
-import type { Context as Chord, JsonValue } from "@earendil-works/chord";
-import type {
-  AssistantMessage,
-  Message,
-  Model,
-  ToolResultMessage,
-  TSchema,
-} from "@earendil-works/pi-ai";
+import type { Context as Chord } from "@earendil-works/chord/context";
+import type { JsonValue } from "@earendil-works/chord/json";
+import type { AssistantMessage, Message, Model, ToolResultMessage } from "@earendil-works/pi-ai";
+import type { Schema } from "@earendil-works/pi-schema";
 import type {
   EventBus,
   ExtensionAPI,
@@ -37,9 +33,6 @@ import {
   LiveDoc,
   section,
   ToolTask,
-  watchEvents,
-  type AgentEvent,
-  type AgentEventStream,
   type Conversation,
   type ConversationId,
   type EntryRecord,
@@ -54,6 +47,7 @@ import {
   type ToolExecutionResult,
   type ToolRegistration,
 } from "@earendil-works/pi-durable";
+import { watchChat, type ChatEvent, type ChatStream } from "./events";
 
 /** Every name pi's `on()` overloads accept; a union, since an overload set has no inferable first parameter. */
 export type PiEventName =
@@ -253,7 +247,7 @@ interface Bound {
   harness: Harness;
   conversation: Conversation;
   context: Chord;
-  stream: AgentEventStream;
+  stream: ChatStream;
   busy: boolean;
   inbox: number;
   agentModel?: ModelRef;
@@ -835,9 +829,8 @@ export function createPiHost(options: PiHostOptions): PiHost {
     return defineTool({
       name: def.name,
       description: def.description,
-      // Two pi-ai copies in the program: Orbit's TypeBox schema is passed through untouched so
-      // pi-ai validates it as it does today (strict for @sinclair/typebox, see the orbit test).
-      parameters: def.parameters as unknown as TSchema,
+      // Orbit's TypeBox schema is JSON Schema, passed through untouched for pi-schema to validate.
+      parameters: def.parameters as unknown as Schema,
       ...(def.executionMode ? { executionMode: def.executionMode } : {}),
       ...(def.prepareArguments ? { prepareArguments: def.prepareArguments } : {}),
       execute: async (args, api, chord) => {
@@ -850,7 +843,7 @@ export function createPiHost(options: PiHostOptions): PiHost {
         try {
           const r = await def.execute(api.callId, args, chord.abortSignal, onUpdate, toolCtx);
           return {
-            content: r.content ?? [],
+            output: r.content ?? [],
             details: json(r.details) ?? {},
             isError: r.isError === true,
           };
@@ -858,7 +851,7 @@ export function createPiHost(options: PiHostOptions): PiHost {
           if (chord.abortSignal?.aborted) throw error;
           // pi-agent-core turns a throw into an error result; a pi-durable throw would fault the task.
           return {
-            content: [{ type: "text", text: errorText(error) }],
+            output: [{ type: "text", text: errorText(error) }],
             details: {},
             isError: true,
           };
@@ -1221,7 +1214,7 @@ export function createPiHost(options: PiHostOptions): PiHost {
               if (code !== "blocked") return undefined;
               return {
                 ...result,
-                content,
+                output: content,
                 isError: true,
                 diagnostics: (result.diagnostics ?? []).filter((d) => d.severity !== "error"),
               };
@@ -1234,7 +1227,7 @@ export function createPiHost(options: PiHostOptions): PiHost {
                 // pi-durable hands afterTool the call as the model wrote it; pi's tool_result
                 // carries the validated arguments tool_call saw.
                 input: run.args.get(call.id) ?? (call.arguments as Record<string, unknown>),
-                content: result.content ?? [],
+                content: result.output ?? [],
                 details: result.details,
                 isError: result.isError === true,
                 usage: result.usage,
@@ -1244,7 +1237,7 @@ export function createPiHost(options: PiHostOptions): PiHost {
             let out: ToolExecutionResult = merged
               ? {
                   ...result,
-                  content: merged.content,
+                  output: merged.content,
                   details: json(merged.details) as JsonValue,
                   isError: merged.isError,
                   ...(merged.usage === undefined
@@ -1254,12 +1247,12 @@ export function createPiHost(options: PiHostOptions): PiHost {
               : result;
             const replaced = await executionEnd(
               call,
-              { content: out.content ?? [], details: out.details, isError: out.isError === true },
+              { content: out.output ?? [], details: out.details, isError: out.isError === true },
               durationMs,
               chord,
             );
             if (replaced) {
-              out = { ...out, content: replaced.content, isError: replaced.isError === true };
+              out = { ...out, output: replaced.content, isError: replaced.isError === true };
             }
             return out === result ? undefined : out;
           },
@@ -1322,7 +1315,7 @@ export function createPiHost(options: PiHostOptions): PiHost {
     for (const resolve of b.starts.get(id) ?? []) resolve();
   };
 
-  async function onEvents(events: readonly AgentEvent[]) {
+  async function onEvents(events: readonly ChatEvent[]) {
     const b = bound;
     if (!b) return;
     let landed = false;
@@ -1332,7 +1325,7 @@ export function createPiHost(options: PiHostOptions): PiHost {
           // Overflow: pi-durable replaced the undelivered batches with one snapshot, so the run
           // boundaries in between are gone; catch up on what the snapshot says.
           b.busy = event.run !== undefined;
-          b.inbox = event.inbox.length;
+          b.inbox = event.inbox;
           b.agentModel = event.agent.model;
           started(b, event.run?.inputs[0]);
           landed = true;
@@ -1361,10 +1354,9 @@ export function createPiHost(options: PiHostOptions): PiHost {
           const later = events.slice(i + 1);
           const aborted = later.some(
             (e) =>
-              e.type === "submission" &&
-              event.inputs.includes(e.record.id) &&
-              e.record.status === "unanswered" &&
-              e.record.reason === "aborted",
+              e.type === "unanswered" &&
+              e.reason === "aborted" &&
+              e.inputs.some((id) => event.inputs.includes(id)),
           );
           const next = later.find((e) => e.type === "run_start");
           if (next?.type === "run_start" && !aborted) {
@@ -1386,7 +1378,7 @@ export function createPiHost(options: PiHostOptions): PiHost {
           landed = false;
           await emit("agent_end", { messages });
           const inbox = later.findLast((e) => e.type === "inbox_update");
-          const pending = inbox && inbox.type === "inbox_update" ? inbox.items.length : b.inbox;
+          const pending = inbox && inbox.type === "inbox_update" ? inbox.items : b.inbox;
           if (next === undefined && pending === 0) {
             const last = messages.findLast((m) => m.role === "assistant") as
               AssistantMessage | undefined;
@@ -1395,7 +1387,7 @@ export function createPiHost(options: PiHostOptions): PiHost {
           break;
         }
         case "inbox_update":
-          b.inbox = event.items.length;
+          b.inbox = event.items;
           break;
         case "agent_changed": {
           const next = event.agent.model;
@@ -1421,7 +1413,7 @@ export function createPiHost(options: PiHostOptions): PiHost {
   }
 
   async function attach(harness: Harness, conversation: Conversation, context: Chord) {
-    const stream = await watchEvents(harness, conversation.id, context);
+    const stream = await watchChat(harness, conversation, context);
     const snapshot = stream.snapshot;
     const b: Bound = {
       harness,
@@ -1429,7 +1421,7 @@ export function createPiHost(options: PiHostOptions): PiHost {
       context,
       stream,
       busy: snapshot.run !== undefined,
-      inbox: snapshot.inbox.length,
+      inbox: snapshot.inbox,
       agentModel: snapshot.agent.model,
       branch: [],
       contextLenAtRunStart: 0,
@@ -1491,7 +1483,7 @@ export function createPiHost(options: PiHostOptions): PiHost {
     stale = STALE_CTX_MESSAGE;
     const b = bound;
     bound = undefined;
-    if (b) await b.stream.stop();
+    b?.stream.stop();
   }
 
   return {

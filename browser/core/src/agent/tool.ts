@@ -1,5 +1,6 @@
-import { Type } from "@earendil-works/pi-ai";
-import type { Context as Chord, JsonValue } from "@earendil-works/chord";
+import { unsafe } from "@earendil-works/pi-schema";
+import type { Context as Chord } from "@earendil-works/chord/context";
+import type { JsonValue } from "@earendil-works/chord/json";
 import {
   defineTool,
   type ConversationId,
@@ -162,7 +163,7 @@ export function durableTool(tool: AgentTool, host: ToolHost): ToolRegistration {
   return defineTool({
     name: tool.name,
     description: tool.description,
-    parameters: Type.Unsafe(tool.parameters),
+    parameters: unsafe(tool.parameters),
     ...(tool.capability === "write" ? {} : { replay: "safe" as const }),
     execute: async (args, api, context) => {
       const id = api.conversationId;
@@ -211,7 +212,7 @@ export function durableTool(tool: AgentTool, host: ToolHost): ToolRegistration {
         ...(guard ? { refused: true, guard } : {}),
       };
       return {
-        content: [{ type: "text", text }],
+        output: [{ type: "text", text }],
         isError: value instanceof Outcome && value.isError,
         ...(Object.keys(details).length ? { details: details as JsonObject } : {}),
       };

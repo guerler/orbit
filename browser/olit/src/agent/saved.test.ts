@@ -3,13 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { Message } from "@earendil-works/pi-ai";
-import {
-  MemoryStorage,
-  watchEvents,
-  type AgentEvent,
-  type Conversation,
-  type Storage,
-} from "@earendil-works/pi-durable";
+import { MemoryStorage, type Conversation, type Storage } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -24,8 +18,8 @@ import {
   artifactsIn,
   ChatView,
   context,
-  drawnEvents,
   Runtime,
+  watchChat,
   type RuntimeConfig,
 } from "@galaxyproject/orbit-browser/testing";
 import type { SessionDocument } from "@galaxyproject/orbit-browser/agent";
@@ -419,10 +413,10 @@ describe("a compacted conversation, as the page draws it", () => {
 
   /** The page as an attach draws it: the snapshot a watch opens with. */
   async function attached(runtime: Runtime, conversation: Conversation) {
-    const stream = await watchEvents(runtime.harness, conversation.id, context);
-    await stream.stop();
+    const stream = await watchChat(runtime.harness, conversation, context);
+    stream.stop();
     const drawn = page();
-    drawn.view.apply(await drawnEvents(conversation, [stream.snapshot], context));
+    drawn.view.apply([stream.snapshot]);
     return drawn;
   }
 
@@ -463,16 +457,14 @@ describe("a compacted conversation, as the page draws it", () => {
     expect(charts).toEqual([[CHART.title]]);
   });
 
-  it("redraws every turn from a snapshot a lagging page is sent instead of its batches", async () => {
+  it("redraws every turn when the page attaches again", async () => {
     world();
     const runtime = await machine(new MemoryStorage(), { ai_keep_recent_tokens: 1 });
     const conversation = await compacted(runtime);
     const drawn = await attached(runtime, conversation);
-    const stream = await watchEvents(runtime.harness, conversation.id, context);
-    await stream.stop();
-    // An overflow delivers one snapshot of the newest view in place of the undelivered batches.
-    const recovered: AgentEvent[] = [stream.snapshot];
-    drawn.view.apply(await drawnEvents(conversation, recovered, context));
+    const stream = await watchChat(runtime.harness, conversation, context);
+    stream.stop();
+    drawn.view.apply([stream.snapshot]);
     expect(drawn.shown).toEqual(WHOLE);
     expect(drawn.charts.at(-1)).toEqual([CHART.title]);
   });
@@ -481,25 +473,12 @@ describe("a compacted conversation, as the page draws it", () => {
     world();
     const runtime = await machine(new MemoryStorage(), { ai_keep_recent_tokens: 1 });
     const conversation = await compacted(runtime);
-    const stream = await watchEvents(runtime.harness, conversation.id, context);
-    await stream.stop();
+    const stream = await watchChat(runtime.harness, conversation, context);
+    stream.stop();
     await say(runtime, conversation, "fourth");
     const drawn = page();
-    drawn.view.apply(await drawnEvents(conversation, [stream.snapshot], context));
+    drawn.view.apply([stream.snapshot]);
     expect(drawn.shown).toEqual(WHOLE);
-  });
-
-  it("passes a conversation that never compacted, and every other event, through as it is", async () => {
-    world();
-    const runtime = await machine();
-    const conversation = await runtime.create({ historyId: "h1" });
-    await say(runtime, conversation, "only");
-    const stream = await watchEvents(runtime.harness, conversation.id, context);
-    await stream.stop();
-    const other = { type: "run_end" } as unknown as AgentEvent;
-    const [snapshot, passed] = await drawnEvents(conversation, [stream.snapshot, other], context);
-    expect(snapshot).toBe(stream.snapshot);
-    expect(passed).toBe(other);
   });
 });
 

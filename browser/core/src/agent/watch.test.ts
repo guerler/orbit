@@ -4,7 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { Models } from "@earendil-works/pi-ai";
+import { createModels } from "@earendil-works/pi-ai";
 import {
   createRegistry,
   defineExtension,
@@ -100,6 +100,18 @@ describe("watchedFrom", () => {
   });
 });
 
+// galaxy-ops' settled states (src/terminal-states.ts), which it keeps internal.
+const JOB_SETTLED_STATES = ["ok", "skipped", "stopped", "error", "failed", "deleted"];
+const DATASET_TERMINAL_STATES = [
+  "ok",
+  "empty",
+  "error",
+  "deferred",
+  "discarded",
+  "failed_metadata",
+];
+const INVOCATION_FINISHED_STATES = ["cancelled", "failed", "completed"];
+
 describe("what a settled state amounts to", () => {
   it("settles exactly where Galaxy and galaxy-ops call a state final, and at a paused dataset", () => {
     // Galaxy's Job.is_terminal, plus `failed`, which galaxy-ops settles too.
@@ -172,7 +184,7 @@ async function watching(
   });
   const registry = createRegistry();
   registry.install(defineExtension({ name: "watch", tasks: [watch] }));
-  const harness = await Harness.open(storage, { models: {} as Models, registry }, context);
+  const harness = await Harness.open(storage, { models: createModels(), registry }, context);
   return { harness, watch };
 }
 

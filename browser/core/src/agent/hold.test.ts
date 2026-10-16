@@ -1,14 +1,13 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Models } from "@earendil-works/pi-ai";
+import { createModels } from "@earendil-works/pi-ai";
 import {
   createRegistry,
   defineDoc,
   Harness,
   InboxDoc,
   LiveDoc,
-  watchEvents,
   type Conversation,
 } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
@@ -16,6 +15,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_BRAND, followUpMark } from "./brand";
 import { FollowUps, MAX_AUTO_FOLLOW_UPS } from "./documents";
+import { watchChat } from "./events";
 import { hanging, json, text, toolCall } from "./fake-model";
 import type { Galaxy } from "./galaxy";
 import { context, Runtime } from "./runtime";
@@ -320,7 +320,7 @@ describe("follow-ups held for the user", () => {
     await runtime.harness.waitForTask(await watchJob(conversation), context);
 
     // What the page draws: the follow-up lands as an entry the transcript reads as one.
-    const stream = await watchEvents(runtime.harness, conversation.id, context);
+    const stream = await watchChat(runtime.harness, conversation, context);
     const drawn: string[] = [];
     stream.start(async (events) => {
       for (const e of events) {
@@ -329,7 +329,7 @@ describe("follow-ups held for the user", () => {
       }
     });
     await (await runtime.submit(conversation, "continue")).wait(context);
-    await stream.stop();
+    stream.stop();
     expect(drawn.map((m) => m.startsWith(MARK) || m)).toEqual([true, "continue"]);
     expect(asked).toHaveLength(1);
     expect(asked[0].map((m) => m.startsWith(MARK) || m)).toEqual([true, "continue"]);
@@ -695,30 +695,42 @@ describe("held input across a crash", () => {
 
   it("holds input an earlier build kept queued in pi-durable's inbox, when the store opens", async () => {
     const path = file();
-    const asked = world({ state: "queued" });
+    let fail!: () => void;
+    const failing = new Promise<void>((resolve) => (fail = resolve));
+    const asked = world({ state: "queued" }, async () => {
+      await failing;
+      return json({ error: { message: "unavailable" } }, 400);
+    });
     const before = await machine(await openNodeSqliteStorage(path));
     const conversation = await before.create({ historyId: "h1" });
     await conversation.commit(async (tx) => {
       (await tx.doc(FollowUps, conversation.id)).paused = true;
     }, context);
-    // How olit.000 held input: queued in an idle conversation, for the next input to place.
+    // Input an earlier build left queued in an idle conversation, for the next input to place:
+    // here queued behind a run that then fails, which leaves it in pi-durable's inbox.
+    const first = await conversation.submit({ type: "input", content: "first" }, context);
+    await until(() => asked.length === 1);
     const queued = await conversation.submit(
-      { type: "input", content: "second", whenIdle: "queue" },
+      { type: "input", content: "second", whenBusy: "followUp" },
       context,
     );
+    fail();
+    expect((await first.wait(context)).status).toBe("unanswered");
+    await conversation.waitForIdle(context);
     expect((await queued.status(context)).status).toBe("queued");
 
     const after = await reopen(before, path);
     const reopened = (await after.kept({ historyId: "h1" }))!;
     await reopened.reset(undefined, context);
     await reopened.waitForIdle(context);
-    expect(asked).toHaveLength(0);
+    expect(asked).toHaveLength(1);
     expect((await policyOf(after, reopened))?.pending.map((p) => p.id)).toEqual([
       `inbox:${queued.id}`,
     ]);
 
     await (await after.submit(reopened, "continue")).wait(context);
-    expect(asked).toEqual([["second", "continue"]]);
+    expect(asked).toHaveLength(2);
+    expect(asked.at(-1)!.slice(-2)).toEqual(["second", "continue"]);
   });
 
   it("does not resume the run when a crash came before its abort", async () => {
@@ -837,8 +849,9 @@ describe("the follow-up policy document", () => {
       history: "latest",
       fork: "initial",
       initial: () => ({ automatic: 0, paused: false }),
+      checkpointWhen: () => false,
     });
-    const options = { models: {} as Models, registry: createRegistry() };
+    const options = { models: createModels(), registry: createRegistry() };
     const first = await Harness.open(await openNodeSqliteStorage(file), options, context);
     const conversation = await first.createConversation(
       { ownership: { kind: "ownerless" } },

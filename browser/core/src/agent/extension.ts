@@ -1,5 +1,6 @@
-import type { Context as Chord } from "@earendil-works/chord";
-import { contentText, Type, type Message } from "@earendil-works/pi-ai";
+import type { Context as Chord } from "@earendil-works/chord/context";
+import { contentText, type Message } from "@earendil-works/pi-ai";
+import { obj, str } from "@earendil-works/pi-schema";
 import {
   defineExtension,
   defineTool,
@@ -70,9 +71,9 @@ const finish = defineTool({
   description:
     "Call when the task is complete. The summary is your closing reply to the user: " +
     "state the result itself, not where you wrote it.",
-  parameters: Type.Object({ summary: Type.String() }),
+  parameters: obj({ summary: str() }, { open: true }),
   execute: async (args) => ({
-    content: [{ type: "text", text: args.summary || "done" }],
+    output: [{ type: "text", text: args.summary || "done" }],
     control: { terminate: true },
   }),
 });
@@ -82,7 +83,7 @@ const codeOf = (result: ToolExecutionResult) =>
 
 const replaced = (result: ToolExecutionResult, text: string, guard?: Guard) => ({
   ...result,
-  content: [{ type: "text" as const, text }],
+  output: [{ type: "text" as const, text }],
   diagnostics: (result.diagnostics ?? []).filter((d) => d.severity !== "error"),
   ...(guard ? { details: { refused: true, guard } } : {}),
 });
@@ -151,10 +152,10 @@ export function agentExtension(host: AgentHost) {
     if (out.isError && (!guard || GUARD_COUNTS_AS_FAILURE[guard])) {
       run.guard.noteFailure(call.name, call.id);
     }
-    const screened = run.guard.screened(contentText(out.content ?? []));
+    const screened = run.guard.screened(contentText(out.output ?? []));
     return screened === undefined
       ? out
-      : { ...out, content: [{ type: "text" as const, text: screened }] };
+      : { ...out, output: [{ type: "text" as const, text: screened }] };
   }
 
   const extension = defineExtension({

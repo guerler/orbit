@@ -16,11 +16,11 @@ export { PROVIDERS } from "./agent/providers";
 export {
   artifactsIn,
   context,
-  drawnEvents,
   Runtime,
   type RuntimeConfig,
   type RuntimeOptions,
 } from "./agent/runtime";
+export { translate, watchChat, type ChatEvent } from "./agent/events";
 export { usageTotals } from "./agent/saved";
 export { flavoredSkills } from "./agent/skills";
 export { claim, GUARDS, Outcome, rendered } from "./agent/tool";

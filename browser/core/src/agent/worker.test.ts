@@ -107,11 +107,12 @@ describe("the worker's order", () => {
 
     const switched = request++;
     send({ type: "switch", id: switched, config: { ai_provider: "ollama", ai_base_url: LOCAL } });
+    const from = posted.length;
     send({ type: "stop" });
     const settled = () =>
-      posted.some(
-        (m) => m.type === "events" && m.events.some((e) => e.type === "tool_execution_end"),
-      );
+      posted
+        .slice(from)
+        .some((m) => m.type === "events" && m.events.some((e) => e.type === "run_end"));
     await until(settled);
     expect(posted.some((m) => m.type === "reply" && m.id === switched)).toBe(false);
     const confirmation = posted.find((m) => m.type === "confirm") as { id: number };
