@@ -48,6 +48,7 @@ import { mountUsageBar } from "./usage-bar";
 import { mountBuildStamp } from "./build-stamp";
 import { localTime } from "./galaxy-time";
 import { createRetryNotice } from "./retry-notice";
+import { isDictationShortcut, mountDictation, rememberedConsent } from "./dictation";
 
 export type { ArtifactRenderer, ArtifactRenderers } from "./artifacts";
 
@@ -279,6 +280,10 @@ export async function mountOrbitBrowser(
   });
 
   el.input.addEventListener("input", () => autosize(el.input));
+  // Asked on the first use; `confirm` is made below, before any click can reach the button.
+  const dictation = mountDictation(el.mic, el.input, {
+    consent: rememberedConsent(`${brand.id}.dictationConsent`, (request) => confirm.ask(request)),
+  });
 
   let busy = false;
   let ready = false;
@@ -377,6 +382,7 @@ export async function mountOrbitBrowser(
     pyodideURL: options.pyodideURL,
     config: workerConfig(),
     placement: { historyId: launch.historyId, datasetId: config.dataset_id },
+    ...(options.pool ? { pool: options.pool } : {}),
     ...(launch.saved ? { saved: { ...launch.saved, id: keptAs(launch.saved.id) } } : {}),
   };
 
@@ -389,17 +395,18 @@ export async function mountOrbitBrowser(
   /** Said once ready, when the user chose to continue a record whose conversation is gone. */
   let continuing: string | undefined;
 
-  /** Question from the host, asked once an empty conversation is shown. */
-  let pendingAsk = launch.ask;
-  function ask() {
-    if (pendingAsk && view.turns) {
-      startNew();
-    } else if (pendingAsk) {
-      el.input.value = pendingAsk;
-      pendingAsk = undefined;
-      submit();
+  /** Asks the host's next question in an empty conversation, starting one when needed. */
+  askNext = () => {
+    if (asks.length && ready && afterReset === undefined) {
+      if (view.turns || busy) {
+        startNew(busy);
+      } else {
+        el.input.value = asks.shift()!;
+        submit();
+        askNext();
+      }
     }
-  }
+  };
 
   const agent = new AgentClient((message) => {
     if (message.type === "events") {
@@ -407,7 +414,7 @@ export async function mountOrbitBrowser(
       if (afterReset && message.events.some((e) => e.type === "snapshot")) {
         info(afterReset);
         afterReset = undefined;
-        ask();
+        askNext();
       }
       refreshControls();
     } else if (message.type === "settled") {
@@ -545,6 +552,7 @@ export async function mountOrbitBrowser(
       info("Still starting; send again once it says it is ready.");
       return;
     }
+    dictation?.cancel();
     el.input.value = "";
     el.input.style.height = "auto";
     // Busy from the click: the run starts once the worker has stored the message.
@@ -596,6 +604,10 @@ export async function mountOrbitBrowser(
     (e) => {
       if ((e as KeyboardEvent).key === "Escape" && busy) {
         stop();
+      }
+      if (dictation && isDictationShortcut(e as KeyboardEvent)) {
+        e.preventDefault();
+        dictation.toggle();
       }
     },
     { signal: mounted.signal },
