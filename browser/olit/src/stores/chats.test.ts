@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { chatStore } from "../agent/fake-chats";
 import { connectGalaxy } from "@galaxyproject/orbit-browser/testing";
 import { SCHEMA, type SessionDocument } from "@galaxyproject/orbit-browser/agent";
-import { AGENT_TYPE, chats, HELD_NOTE, heldSession, turnsOf } from "./chats";
+import { AGENT_TYPE, chats, HELD_NOTE, heldSession, OTHER_VERSION_NOTE, turnsOf } from "./chats";
 
 const document = (): SessionDocument => ({
   olit_session: SCHEMA,
@@ -60,7 +60,7 @@ describe("a saved Olit chat", () => {
     expect(rows.size).toBe(1);
   });
 
-  it("is saved as a new chat if it came from GalaxyAI or no longer exists", async () => {
+  it("is saved as a new chat when it has no session or is gone", async () => {
     const { rows, saved } = fakeGalaxy();
     rows.set("g1", {
       agent_type: "router",
@@ -73,7 +73,7 @@ describe("a saved Olit chat", () => {
     expect(await saved.save(document(), "gone")).not.toBe("gone");
   });
 
-  it("opens an older GalaxyAI chat from its questions and answers", async () => {
+  it("opens a chat without a session from its questions and answers", async () => {
     const { rows, saved } = fakeGalaxy();
     rows.set("g1", {
       agent_type: "router",
@@ -85,7 +85,19 @@ describe("a saved Olit chat", () => {
     expect(turnsOf(opened.document.entries)).toEqual([{ query: "q", response: "r" }]);
   });
 
-  it("opens nothing from a chat whose document is not an Olit session", async () => {
+  it("opens a chat saved by another version from its questions and answers", async () => {
+    const { rows, saved } = fakeGalaxy();
+    rows.set("o1", {
+      agent_type: AGENT_TYPE,
+      messages: [{ query: "q", response: "r" }],
+      document: { ...document(), olit_session: SCHEMA + 1 },
+    });
+    const opened = (await saved.load("o1"))!;
+    expect(opened.held).toEqual({ note: OTHER_VERSION_NOTE });
+    expect(turnsOf(opened.document.entries)).toEqual([{ query: "q", response: "r" }]);
+  });
+
+  it("returns null for a document that is not a session", async () => {
     const { rows, saved } = fakeGalaxy();
     rows.set("x1", { agent_type: "other", messages: [], document: { settings: {} } });
     expect(await saved.load("x1")).toBeNull();
@@ -133,7 +145,7 @@ describe("turnsOf", () => {
 });
 
 describe("heldSession", () => {
-  it("creates a session Olit can open, with answers marked as GalaxyAI's", () => {
+  it("creates a session Olit can open from the questions and answers", () => {
     const held = heldSession([
       { role: "user", content: "q", timestamp: "2026-10-01T10:00:00" },
       { role: "assistant", content: "r", agent_type: "router", timestamp: "2026-10-01T10:00:00" },

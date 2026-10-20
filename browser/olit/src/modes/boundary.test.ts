@@ -37,13 +37,13 @@ function importing(prefix: string, target: RegExp): string[] {
 const MODE_SPECIFIC = /^(modes\/|stores\/|launch$|incoming$|main$|host$)/;
 
 describe("olit's two modes", () => {
-  it("are found, so the checks below are not empty", () => {
+  it("are found by the checks below", () => {
     expect([...graph.keys()]).toEqual(
       expect.arrayContaining(["main.ts", "launch.ts", "modes/chat.ts", "stores/chats.ts"]),
     );
   });
 
-  it("are not imported by the agent, tools or artifacts", () => {
+  it("stay out of the agent, tools and artifacts", () => {
     expect(importing("agent/", MODE_SPECIFIC)).toEqual([]);
     expect(importing("artifacts/", MODE_SPECIFIC)).toEqual([]);
     expect(importing("worker", MODE_SPECIFIC)).toEqual([]);
@@ -69,7 +69,7 @@ describe("olit's two modes", () => {
     expect(importing("launch", /^(stores\/(?!store$)|modes\/|host$)/)).toEqual([]);
   });
 
-  it("have stores that import neither the modes nor each other", () => {
+  it("have independent stores", () => {
     expect(importing("stores/", /^(modes\/|launch$|host$|stores\/(?!store$))/)).toEqual([]);
   });
 

@@ -31,11 +31,11 @@ const shown = (frame, pattern, ms = 120000) =>
     await fetch(`${STUB}/__script?name=record`);
 
     const first = await machine(browser);
-    check("the first machine boots", await shown(first.frame, "/olit ready/i"));
+    check("the first machine boots", await shown(first.frame, "/Ready\\./"));
     await first.frame.locator("#input").fill("start the record for this analysis");
     await first.frame.locator("#send-btn").click();
     check("the session writes its record", await shown(first.frame, "Noted in the record.", 60000));
-    const record = (await (await fetch(`${STUB}/__pages`)).json()).pages.find((p) => /^olit-/.test(p.slug));
+    const record = (await (await fetch(`${STUB}/__pages`)).json()).pages.find((p) => /^notebook-/.test(p.slug));
     check("the record is attached to the history the session was started on",
         record?.history_id === "h-drecover", JSON.stringify(record && { slug: record.slug, history: record.history_id }));
 
@@ -45,9 +45,9 @@ const shown = (frame, pattern, ms = 120000) =>
     check("another machine is offered the history's notebook",
         await shown(second.frame, "/New conversation, add to/"));
     const early = await second.frame.locator("body").innerText();
-    check("nothing starts before the user decides", !/olit ready/i.test(early));
+    check("nothing starts before the user decides", !/Ready\./.test(early));
     await second.frame.locator("button", { hasText: "New conversation, add to" }).first().click();
-    check("adding to it starts the session", await shown(second.frame, "/olit ready/i"));
+    check("adding to it starts the session", await shown(second.frame, "/Ready\\./"));
     check("adding to it says the earlier transcript is not brought back",
         await shown(second.frame, "/without the earlier transcript/"));
     const restored = await second.frame.locator("body").innerText();

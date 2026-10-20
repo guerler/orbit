@@ -44,12 +44,12 @@ const ready = (frame) =>
 (async () => {
     const browser = await playwright[BROWSER].launch();
 
-    // Without the chat view, Olit runs as a visualization.
+    // A plain frame runs as a visualization and saves to Galaxy's visualizations.
     const plain = await machine(browser, `${HOST}?dataset_id=dlife&frame=1`);
     const plainReady = await ready(plain.frame);
-    const plainText = await plain.frame.locator("body").innerText();
-    check("without the chat view, Olit runs as a visualization",
-        plainReady && !/GalaxyAI/.test(plainText), plainText.replace(/\s+/g, " ").slice(0, 200));
+    const plainSave = await plain.frame.locator("#save-btn").getAttribute("title");
+    check("a plain frame runs as a visualization",
+        plainReady && plainSave === "Save this conversation to Galaxy to reopen it on any device", plainSave);
 
     await fetch(`${STUB}/__script?name=plain`);
     // A chat saved without a session, to open after asking.

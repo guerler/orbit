@@ -125,27 +125,20 @@ export interface OrbitBrowserHandle {
 }
 
 /** With no dataset to start from, the conversation is Galaxy's current history's. */
-export async function currentHistoryLaunch(
-  galaxy: Galaxy,
-  brand: Brand = DEFAULT_BRAND,
-): Promise<LaunchContext> {
+export async function currentHistoryLaunch(galaxy: Galaxy): Promise<LaunchContext> {
   try {
     const id = (await galaxy.get("history/current_history_json"))?.id;
     if (typeof id === "string" && id) return { historyId: id };
-    return { stop: cannotStart("the current history", undefined, brand) };
+    return { stop: cannotStart("the current history") };
   } catch (e) {
     const problem = String((e as Error)?.message ?? e);
-    return { stop: cannotStart("the current history", problem, brand) };
+    return { stop: cannotStart("the current history", problem) };
   }
 }
 
 /** The line a launch stops with when Galaxy names no history to work in. */
-export const cannotStart = (
-  what: string,
-  problem = "it named no history",
-  brand: Brand = DEFAULT_BRAND,
-) =>
-  `Could not read ${what} from Galaxy (${problem}). ${brand.name} works in a history, so it ` +
+export const cannotStart = (what: string, problem = "it named no history") =>
+  `Could not read ${what} from Galaxy (${problem}). This works in a history, so it ` +
   "cannot start; reload to try again.";
 
 /** Grow the composer with its content, up to a few lines. */
@@ -178,7 +171,6 @@ export async function mountOrbitBrowser(
   }
   const sessions = options.sessions;
   const brand = options.brand ?? DEFAULT_BRAND;
-  const name = brand.name;
   const target = {
     root: options.galaxyRoot,
     datasetId: options.datasetId,
@@ -186,7 +178,7 @@ export async function mountOrbitBrowser(
   };
   applyOrbitTheme("light", document.documentElement);
 
-  const el = mountLayout(container, { save: !!sessions, name });
+  const el = mountLayout(container, { save: !!sessions });
   if (el.save && sessions?.label) el.save.title = sessions.label;
   const mounted = new AbortController();
   let started: AgentClient | undefined;
@@ -229,7 +221,6 @@ export async function mountOrbitBrowser(
   // The page's own Galaxy requests take the transport the agent's do.
   const galaxy = connectGalaxy({ root: config.galaxy_root, credentials });
   const launch = await (options.launch ?? currentHistoryLaunch)(galaxy);
-  if (launch.ask) asks.push(launch.ask);
   if (launch.stop) {
     chat.addErrorMessage(launch.stop);
     el.input.disabled = true;
@@ -398,18 +389,17 @@ export async function mountOrbitBrowser(
   /** Said once ready, when the user chose to continue a record whose conversation is gone. */
   let continuing: string | undefined;
 
-  /** Asks the host's next question in an empty conversation, starting one when needed. */
-  askNext = () => {
-    if (asks.length && ready && afterReset === undefined) {
-      if (view.turns || busy) {
-        startNew(busy);
-      } else {
-        el.input.value = asks.shift()!;
-        submit();
-        askNext();
-      }
+  /** Question from the host, asked once an empty conversation is shown. */
+  let pendingAsk = launch.ask;
+  function ask() {
+    if (pendingAsk && view.turns) {
+      startNew();
+    } else if (pendingAsk) {
+      el.input.value = pendingAsk;
+      pendingAsk = undefined;
+      submit();
     }
-  };
+  }
 
   const agent = new AgentClient((message) => {
     if (message.type === "events") {
@@ -417,7 +407,7 @@ export async function mountOrbitBrowser(
       if (afterReset && message.events.some((e) => e.type === "snapshot")) {
         info(afterReset);
         afterReset = undefined;
-        askNext();
+        ask();
       }
       refreshControls();
     } else if (message.type === "settled") {
@@ -425,23 +415,24 @@ export async function mountOrbitBrowser(
     } else if (message.type === "held") {
       if (message.held) {
         info(
-          launch.saved
-            ? `${name} ready.`
-            : view.turns
-              ? `Restored this history's conversation from this browser. ${name} ready.`
-              : `${name} ready. Ask me to run something.`,
+          message.held === "paused"
+            ? "Galaxy results are waiting -- automatic follow-up is paused. Say continue when you're ready."
+            : "Galaxy results are waiting -- automatic follow-up paused after several automatic turns. Say continue to resume.",
         );
-        if (launch.greeting) {
-          info(launch.greeting);
-        }
-        ask();
-      } else if (message.type === "recoverable") {
-        // The browser kept nothing of a session here; the user says which, if any, this is.
-        const line = info(
-          "This browser has no conversation for this history. Start a new one, with a new notebook " +
-            "or adding to one of this history's notebooks. Adding to a notebook starts a fresh chat " +
-            "without its earlier transcript." +
-            (sessions?.reopenHint ? ` ${sessions.reopenHint}` : ""),
+      }
+    } else if (message.type === "confirm") {
+      confirm.show(String(message.id), message);
+    } else if (message.type === "withdrawn") {
+      confirm.dismiss(String(message.id));
+    } else if (message.type === "ready") {
+      ready = true;
+      galaxyStatus = message.galaxy;
+      refreshControls();
+      if (message.unkept) {
+        chat.addErrorMessage(
+          `This browser can't keep conversations (${message.unkept}), so this one ends when the ` +
+            "page closes." +
+            (sessions?.keepHint ? ` ${sessions.keepHint}` : ""),
         );
       }
       if (message.galaxyProblem) {
@@ -475,7 +466,7 @@ export async function mountOrbitBrowser(
       if (launch.greeting) {
         info(launch.greeting);
       }
-      askNext();
+      ask();
     } else if (message.type === "recoverable") {
       // The browser kept nothing of a session here; the user says which, if any, this is.
       const line = info(
@@ -501,21 +492,34 @@ export async function mountOrbitBrowser(
             `${record.title}.`;
           choose(record.pageId);
         });
-        line.append(take);
-      } else if (message.type === "lost") {
-        ready = false;
-        refreshControls();
-        chat.addErrorMessage(`${name} was opened in another tab, which has it now.`);
-      } else if (message.type === "failed") {
-        console.error(`[${brand.id}] worker failed`, message.message);
-        chat.hideThinking();
-        setBusy(false);
-        chat.addErrorMessage(briefly(message.message));
+        choices.append(button);
       }
-    },
-    options.createWorker,
-    name,
-  );
+      const fresh = document.createElement("button");
+      fresh.className = "plan-btn";
+      fresh.textContent = "New conversation, new notebook";
+      fresh.addEventListener("click", () => choose());
+      choices.append(fresh);
+    } else if (message.type === "waiting") {
+      const line = info("This session is open in another tab. ");
+      const take = document.createElement("button");
+      take.className = "plan-btn";
+      take.textContent = "Use it here";
+      take.addEventListener("click", () => {
+        take.disabled = true;
+        agent.open({ ...opening, steal: true });
+      });
+      line.append(take);
+    } else if (message.type === "lost") {
+      ready = false;
+      refreshControls();
+      chat.addErrorMessage("This session was opened in another tab, which has it now.");
+    } else if (message.type === "failed") {
+      console.error(`[${brand.id}] worker failed`, message.message);
+      chat.hideThinking();
+      setBusy(false);
+      chat.addErrorMessage(briefly(message.message));
+    }
+  }, options.createWorker);
   started = agent;
   agent.open(opening);
 
@@ -571,7 +575,7 @@ export async function mountOrbitBrowser(
       return;
     }
     if (!ready) {
-      info(`${name} is still starting; send again once it says it is ready.`);
+      info("Still starting; send again once it says it is ready.");
       return;
     }
     el.input.value = "";

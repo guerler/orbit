@@ -24,6 +24,74 @@ async function seedDevIncoming(container: HTMLElement): Promise<void> {
   });
 }
 
+/**
+ * Opening a saved visualization opens that conversation; otherwise the history's own, on the
+ * dataset Galaxy launched Olit from.
+ */
+async function launch(
+  galaxy: Galaxy,
+  visualizationId: string | undefined,
+  datasetId: string | undefined,
+): Promise<LaunchContext> {
+  let savedProblem: string | undefined;
+  let notYours: string | undefined;
+  const document = visualizationId
+    ? await savedSessions(galaxy)
+        .load(visualizationId)
+        .then(
+          (found) => {
+            if (!found) savedProblem = "it is not an Olit session this version can open";
+            return found;
+          },
+          (e) => {
+            if (e instanceof NotYours) notYours = e.message;
+            else savedProblem = String((e as Error)?.message ?? e);
+            return null;
+          },
+        )
+    : null;
+  // Nothing of another user's session is used, not even the dataset Galaxy launched it with.
+  if (notYours) {
+    return {
+      stop:
+        `Olit opens only your own saved conversations, and ${visualizationId} is not ` +
+        `one: ${notYours}.`,
+    };
+  }
+  const unopened = savedProblem
+    ? {
+        savedProblem:
+          `Could not open saved conversation ${visualizationId} (${savedProblem}). This ` +
+          "is the history's conversation in this browser instead, and Save stores it as a new one.",
+      }
+    : {};
+  // A saved session carries its own history; otherwise the launch decides it.
+  if (document && visualizationId) {
+    return { saved: { id: visualizationId, document } };
+  }
+  if (!datasetId) {
+    return { ...(await currentHistoryLaunch(galaxy)), ...unopened };
+  }
+  const found = await resolveLaunch(galaxy, datasetId);
+  if (!found.historyId) {
+    return { stop: cannotStart(`dataset ${datasetId}`, found.problem) };
+  }
+  return {
+    historyId: found.historyId,
+    ...unopened,
+    ...(found.dataset ? { greeting: summarize(found.dataset) } : {}),
+  };
+}
+
+/** The hosting Galaxy page's query; its iframe has no src, so it shares Galaxy's origin. */
+function hostSearch(): string {
+  try {
+    return window.parent === window ? "" : window.parent.location.search;
+  } catch {
+    return "";
+  }
+}
+
 async function main() {
   const scriptUrl = new URL(import.meta.url);
   const containerId = scriptUrl.searchParams.get("container") || "app";

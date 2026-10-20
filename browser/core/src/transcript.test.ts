@@ -156,7 +156,7 @@ describe("a live run", () => {
       { type: "run_start", inputs: [] } as unknown as ChatEvent,
       unanswered("faulted", "host.watched raised"),
     ]);
-    expect(v.outcome.error).toBe("Orbit failed while answering: host.watched raised");
+    expect(v.outcome.error).toBe("Answering failed: host.watched raised");
     v.apply([
       { type: "run_start", inputs: [] } as unknown as ChatEvent,
       unanswered("model_error", "context overflow"),
@@ -173,7 +173,9 @@ describe("a live run", () => {
 
   it("reports a background task that failed", () => {
     const { hooks, view: v } = view();
-    v.apply([{ type: "task_failed", kind: "olit.galaxy-watch", message: "boom" } as ChatEvent]);
+    v.apply([
+      { type: "task_failed", taskId: 7, kind: "olit.galaxy-watch", message: "boom" } as AgentEvent,
+    ]);
     expect(hooks.failed).toHaveBeenCalledWith("The olit.galaxy-watch task failed: boom");
   });
 });

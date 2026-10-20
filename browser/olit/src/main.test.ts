@@ -27,7 +27,7 @@ describe("Olit's page entry", () => {
     expect(mounted).toEqual(["chat"]);
   });
 
-  it("ignores an element without data-incoming, and a page without the element", async () => {
+  it("leaves other elements and pages alone", async () => {
     document.body.innerHTML = `<div id="app">someone else's</div>`;
     await load();
     document.body.innerHTML = "";
