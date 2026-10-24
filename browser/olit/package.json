@@ -1,6 +1,6 @@
 {
   "name": "@galaxyproject/olit",
-  "version": "0.0.12",
+  "version": "0.0.13",
   "type": "module",
   "license": "MIT",
   "files": [
@@ -13,6 +13,7 @@
   ],
   "scripts": {
     "build": "orbit-browser-assets && vite build --configLoader runner",
+    "prepack": "npm run build",
     "dev": "npm run build && vite --configLoader runner",
     "preview": "vite preview --configLoader runner",
     "test:unit": "vitest run --configLoader runner",
