@@ -51,6 +51,8 @@ export class ChatPanel {
   // cards instead of all collapsing to one block pushed at message end.
   private pendingSegment = "";
   private copyBtn: HTMLElement;
+  /** Aborts the copy button's listeners on the document and the window. */
+  private readonly attached = new AbortController();
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -478,7 +480,14 @@ export class ChatPanel {
     return historyToMarkdown(this.history);
   }
 
+  /** Removes the copy button and its listeners, which live outside the container. */
+  dispose(): void {
+    this.attached.abort();
+    this.copyBtn.remove();
+  }
+
   private initCopyButton(): HTMLElement {
+    const { signal } = this.attached;
     const COPY_LABEL = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy`;
     const btn = document.createElement("button");
     btn.className = "chat-copy-btn";
@@ -514,22 +523,34 @@ export class ChatPanel {
 
     btn.addEventListener("mousedown", (e) => e.preventDefault()); // keep selection alive on button click
 
-    document.addEventListener("mousedown", (e) => {
-      // contains() so clicking the button's inner <svg> (a child) still counts
-      // as the button -- otherwise the icon hit hides it before the copy fires.
-      if (!btn.contains(e.target as Node)) {
+    document.addEventListener(
+      "mousedown",
+      (e) => {
+        // contains() so clicking the button's inner <svg> (a child) still counts
+        // as the button -- otherwise the icon hit hides it before the copy fires.
+        if (!btn.contains(e.target as Node)) {
+          btn.hidden = true;
+          mouseIsDown = true;
+          dismissal.suppress(currentSignature());
+        }
+      },
+      { signal },
+    );
+    document.addEventListener(
+      "mouseup",
+      () => {
+        mouseIsDown = false;
+        updateBtn();
+      },
+      { signal },
+    );
+    window.addEventListener(
+      "blur",
+      () => {
         btn.hidden = true;
-        mouseIsDown = true;
-        dismissal.suppress(currentSignature());
-      }
-    });
-    document.addEventListener("mouseup", () => {
-      mouseIsDown = false;
-      updateBtn();
-    });
-    window.addEventListener("blur", () => {
-      btn.hidden = true;
-    });
+      },
+      { signal },
+    );
 
     btn.addEventListener("click", () => {
       const sel = window.getSelection();
@@ -585,13 +606,17 @@ export class ChatPanel {
 
     // Keyboard selection (Shift+arrow, Ctrl+A, etc.) — selectionchange is safe
     // here because there's no mousedown race.
-    document.addEventListener("selectionchange", () => {
-      const sig = currentSignature();
-      if (sig === null) selectionEpoch++;
-      dismissal.noteSelectionChange(sig);
-      if (mouseIsDown) return;
-      updateBtn();
-    });
+    document.addEventListener(
+      "selectionchange",
+      () => {
+        const sig = currentSignature();
+        if (sig === null) selectionEpoch++;
+        dismissal.noteSelectionChange(sig);
+        if (mouseIsDown) return;
+        updateBtn();
+      },
+      { signal },
+    );
 
     // The button is position:fixed at the selection's viewport coords, but the
     // chat re-renders and autoscrolls during streaming. Without re-validating on
@@ -603,12 +628,16 @@ export class ChatPanel {
     // A guaranteed dismiss: Escape clears the selection and hides the button.
     // Scoped to when the button is showing so it never disturbs selections
     // elsewhere (e.g. in an input).
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && !btn.hidden) {
-        btn.hidden = true;
-        window.getSelection()?.removeAllRanges();
-      }
-    });
+    document.addEventListener(
+      "keydown",
+      (e) => {
+        if (e.key === "Escape" && !btn.hidden) {
+          btn.hidden = true;
+          window.getSelection()?.removeAllRanges();
+        }
+      },
+      { signal },
+    );
 
     const updateBtn = () => {
       const sel = window.getSelection();
