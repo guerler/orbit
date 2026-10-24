@@ -67,6 +67,35 @@ describe("artifact pane", () => {
     expect(collapsed()).toBe(false);
   });
 
+  it("updates the layout when the container is resized without a window resize", () => {
+    const observed = new Map<Element, () => void>();
+    const Real = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      constructor(private readonly changed: () => void) {}
+      observe(target: Element) {
+        observed.set(target, this.changed);
+      }
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+    try {
+      localStorage.setItem(COLLAPSED_KEY, "0");
+      document.body.innerHTML = `<div id="app"></div>`;
+      const container = document.getElementById("app")!;
+      container.innerHTML = LAYOUT;
+      put(container, "<p>chart</p>");
+      Object.defineProperty(window, "innerWidth", { value: 1200, configurable: true });
+      let width = 400;
+      Object.defineProperty(container, "clientWidth", { get: () => width, configurable: true });
+      mountArtifactPane(container);
+      expect(collapsed()).toBe(true);
+      width = 1000;
+      observed.get(container)!();
+      expect(collapsed()).toBe(false);
+    } finally {
+      globalThis.ResizeObserver = Real;
+    }
+  });
+
   it("toggles from the footer button", () => {
     const { container } = mount(1200);
     const button = container.querySelector<HTMLButtonElement>("#artifact-btn")!;
