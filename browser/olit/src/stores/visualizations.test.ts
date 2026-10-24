@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { visualizationStore } from "./agent/fake-visualizations";
+import { visualizationStore } from "../agent/fake-visualizations";
 import { connectGalaxy } from "@galaxyproject/orbit-browser/testing";
 import { SCHEMA, type SessionDocument } from "@galaxyproject/orbit-browser/agent";
-import { NotYours, PLUGIN_TYPE, reportSavedState, savedSessions, title } from "./saved-session";
+import { NotYours } from "./store";
+import { PLUGIN_TYPE, title, visualizations } from "./visualizations";
 
 const document = (over: Partial<SessionDocument["session"]> = {}): SessionDocument => ({
   olit_session: SCHEMA,
@@ -34,7 +35,9 @@ describe("a saved Olit visualization", () => {
   it("is created as the olit type and never shared", async () => {
     const { rows, fetchMock } = fakeGalaxy();
     vi.stubGlobal("fetch", fetchMock);
-    const id = await savedSessions(connectGalaxy({ root: "http://galaxy/" })).save(document());
+    const id = await visualizations
+      .connect(connectGalaxy({ root: "http://galaxy/" }))
+      .save(document());
     const row = rows.get(id)! as any;
     expect(row.type).toBe(PLUGIN_TYPE);
     for (const key of ["importable", "published", "slug", "users_shared_with"]) {
@@ -45,9 +48,9 @@ describe("a saved Olit visualization", () => {
   it("reads back what was saved", async () => {
     const { fetchMock } = fakeGalaxy();
     vi.stubGlobal("fetch", fetchMock);
-    const saved = savedSessions(connectGalaxy({ root: "http://galaxy/" }));
+    const saved = visualizations.connect(connectGalaxy({ root: "http://galaxy/" }));
     const id = await saved.save(document());
-    expect(await saved.load(id)).toEqual(document());
+    expect(await saved.load(id)).toEqual({ document: document() });
   });
 
   it.each([
@@ -58,7 +61,7 @@ describe("a saved Olit visualization", () => {
     vi.stubGlobal("fetch", fetchMock);
     rows.set("v9", { title: "theirs", config: document(), owner });
     await expect(
-      savedSessions(connectGalaxy({ root: "http://galaxy/" })).load("v9"),
+      visualizations.connect(connectGalaxy({ root: "http://galaxy/" })).load("v9"),
     ).rejects.toThrow(NotYours);
   });
 
@@ -67,7 +70,7 @@ describe("a saved Olit visualization", () => {
     vi.stubGlobal("fetch", fetchMock);
     rows.set("v9", { title: "theirs", config: document(), owner: ME });
     await expect(
-      savedSessions(connectGalaxy({ root: "http://galaxy/" })).load("v9"),
+      visualizations.connect(connectGalaxy({ root: "http://galaxy/" })).load("v9"),
     ).rejects.toThrow(NotYours);
   });
 
@@ -75,7 +78,9 @@ describe("a saved Olit visualization", () => {
     const { rows, fetchMock } = fakeGalaxy();
     vi.stubGlobal("fetch", fetchMock);
     rows.set("v1", { title: "chart", config: { settings: {}, tracks: [] }, owner: ME });
-    expect(await savedSessions(connectGalaxy({ root: "http://galaxy/" })).load("v1")).toBeNull();
+    expect(
+      await visualizations.connect(connectGalaxy({ root: "http://galaxy/" })).load("v1"),
+    ).toBeNull();
   });
 
   it("meets Galaxy's three-character title minimum", () => {
@@ -92,34 +97,7 @@ describe("a saved Olit visualization", () => {
       vi.fn(async () => new Response("boom", { status: 500 })),
     );
     await expect(
-      savedSessions(connectGalaxy({ root: "http://galaxy/" })).save(document()),
+      visualizations.connect(connectGalaxy({ root: "http://galaxy/" })).save(document()),
     ).rejects.toThrow(/500/);
-  });
-});
-
-describe("reportSavedState", () => {
-  /** Galaxy listens on the window that owns the iframe, so a report to our own window is lost. */
-  function fakeParent() {
-    const postMessage = vi.fn();
-    Object.defineProperty(window, "parent", { value: { postMessage }, configurable: true });
-    return postMessage;
-  }
-
-  it("tells the embedding window that a turn left the session unsaved", () => {
-    const postMessage = fakeParent();
-    reportSavedState(false);
-    expect(postMessage).toHaveBeenCalledWith(
-      { from: "galaxy-visualization", visualization_saved: false },
-      "*",
-    );
-  });
-
-  it("tells the embedding window that a save stored the session", () => {
-    const postMessage = fakeParent();
-    reportSavedState(true);
-    expect(postMessage).toHaveBeenCalledWith(
-      { from: "galaxy-visualization", visualization_saved: true },
-      "*",
-    );
   });
 });
