@@ -12,6 +12,8 @@ export default defineConfig(({ command }) => ({
   }),
   test: {
     environment: "happy-dom",
+    // Artifacts mount into an iframe's document, which happy-dom 21 no longer loads by default.
+    environmentOptions: { happyDOM: { settings: { enableIframePageLoading: true } } },
     globals: true,
     include: ["src/**/*.test.{js,ts}"],
   },

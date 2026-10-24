@@ -235,7 +235,7 @@ export function orbitBrowserVite({
       format: "es",
       // One file: WebKit runs a worker's entry module again when a chunk imports from it, and
       // the second copy takes over the worker's messages without its state.
-      rollupOptions: { output: { inlineDynamicImports: true } },
+      rollupOptions: { output: { codeSplitting: false } },
     },
     // The optimizer moves SQLite's module away from the .wasm it loads beside itself.
     optimizeDeps: {

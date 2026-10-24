@@ -20,7 +20,7 @@ export default defineConfig({
     target: "node22",
     // One file: a lazy chunk importing back from an entry that is still in its top-level
     // await never resolves, and the entry awaits the chunk.
-    rollupOptions: { output: { entryFileNames: "session.mjs", inlineDynamicImports: true } },
+    rollupOptions: { output: { entryFileNames: "session.mjs", codeSplitting: false } },
   },
   define: {
     "process.env.build_commit": JSON.stringify(buildCommit()),
