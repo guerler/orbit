@@ -75,15 +75,78 @@ describe("a flavor with no session store", () => {
       ...base,
       createWorker: vi.fn(),
       launch: async () => ({ stop: "stopped" }),
-      sessions: { save: async () => "id", savedState: () => {}, savedNote: "Saved." },
+      sessions: { kind: "test", save: async () => "id", savedState: () => {}, savedNote: "Saved." },
     });
     expect(container.querySelector("#save-btn")).not.toBeNull();
   });
 });
 
+describe("saved sessions in this browser", () => {
+  const document = { olit_session: 1, session: {}, entries: [] } as any;
+  /** Returns what the worker opens when launching save `id` from store `kind`. */
+  async function opened(kind: string, id: string) {
+    const worker = fakeWorker();
+    await mountOrbitBrowser(container, {
+      ...base,
+      createWorker: () => worker as unknown as Worker,
+      launch: async () => ({ saved: { id, document } }),
+      sessions: { kind, save: async () => id, savedState: () => {}, savedNote: "Saved." },
+    });
+    return worker.sent[0]?.request?.saved;
+  }
+
+  // A chat and a visualization can have the same id.
+  it("keys saves by store and id", async () => {
+    expect(await opened("chat", "f2db41e1fa331b3e")).toEqual({
+      id: "chat/f2db41e1fa331b3e",
+      document,
+    });
+    container.replaceChildren();
+    expect(await opened("visualization", "f2db41e1fa331b3e")).toEqual({
+      id: "visualization/f2db41e1fa331b3e",
+      document,
+    });
+  });
+
+  it("keys a new save by store and id", async () => {
+    const worker = fakeWorker();
+    await mountOrbitBrowser(container, {
+      ...base,
+      createWorker: () => worker as unknown as Worker,
+      launch: async () => ({ historyId: "h1" }),
+      sessions: { kind: "chat", save: async () => "c1", savedState: () => {}, savedNote: "Saved." },
+    });
+    worker.say({ type: "ready", galaxy: { connected: true } } as unknown as WorkerMessage);
+    // Add a turn so there is something to save.
+    worker.say({
+      type: "events",
+      events: [
+        {
+          type: "snapshot",
+          entries: [{ kind: "pi.user", model: [{ role: "user", content: "hello" }] }],
+          usage: { models: {} },
+        },
+      ],
+    } as unknown as WorkerMessage);
+    container.querySelector<HTMLButtonElement>("#save-btn")!.click();
+    const exported = await vi.waitFor(() => {
+      const found = worker.sent.find((m) => m.type === "export");
+      if (!found) throw new Error("not exported yet");
+      return found;
+    });
+    worker.say({ type: "reply", id: exported.id, value: document });
+    const saved = await vi.waitFor(() => {
+      const found = worker.sent.find((m) => m.type === "saved");
+      if (!found) throw new Error("not saved yet");
+      return found;
+    });
+    expect(saved.savedId).toBe("chat/c1");
+  });
+});
+
 describe("dispose", () => {
   // Orbit's ChatPanel adds document listeners of its own that only the renderer could detach.
-  it("ends the worker and detaches the pane's document listeners", async () => {
+  it("stops the worker and removes the pane and chat listeners", async () => {
     const worker = fakeWorker();
     const listening = vi.spyOn(document, "addEventListener");
     const handle = await mountOrbitBrowser(container, {
@@ -96,13 +159,15 @@ describe("dispose", () => {
       .filter(([type]) => type === "mousemove" || type === "mouseup")
       .map(([, , options]) => (options as AddEventListenerOptions | undefined)?.signal)
       .filter(Boolean);
-    expect(signals).toHaveLength(2);
+    expect(signals).toHaveLength(3);
+    const buttons = document.querySelectorAll(".chat-copy-btn").length;
     handle.dispose();
     for (const signal of signals) {
       expect(signal?.aborted).toBe(true);
     }
     expect(worker.terminate).toHaveBeenCalledTimes(1);
     expect(container.childElementCount).toBe(0);
+    expect(document.querySelectorAll(".chat-copy-btn")).toHaveLength(buttons - 1);
     listening.mockRestore();
   });
 
@@ -150,5 +215,58 @@ describe("currentHistoryLaunch", () => {
       }),
     );
     expect(launch.stop).toContain("502 Bad Gateway");
+  });
+});
+
+describe("a question from the host", () => {
+  const snapshot = (entries: unknown[]) =>
+    ({
+      type: "events",
+      events: [
+        {
+          type: "snapshot",
+          entries,
+          tools: [],
+          compactions: [],
+          inbox: [],
+          agent: {},
+          usage: { models: {}, tools: {} },
+        },
+      ],
+    }) as unknown as WorkerMessage;
+  const user = {
+    id: 1,
+    conversationId: 1,
+    kind: "pi.user",
+    model: [{ role: "user", content: "hi" }],
+  };
+  const submitted = (worker: ReturnType<typeof fakeWorker>) =>
+    worker.sent.filter((m) => m.type === "submit").map((m) => m.text);
+
+  async function mountAsking(worker: ReturnType<typeof fakeWorker>) {
+    await mountOrbitBrowser(container, {
+      ...base,
+      createWorker: () => worker as unknown as Worker,
+      launch: async () => ({ historyId: "h1", ask: "How many datasets?" }),
+    });
+  }
+
+  it("is asked once the conversation is ready", async () => {
+    const worker = fakeWorker();
+    await mountAsking(worker);
+    worker.say(snapshot([]));
+    worker.say({ type: "ready" } as WorkerMessage);
+    expect(submitted(worker)).toEqual(["How many datasets?"]);
+  });
+
+  it("starts a new conversation if the current one has turns", async () => {
+    const worker = fakeWorker();
+    await mountAsking(worker);
+    worker.say(snapshot([user]));
+    worker.say({ type: "ready" } as WorkerMessage);
+    expect(submitted(worker)).toEqual([]);
+    expect(worker.sent.some((m) => m.type === "reset")).toBe(true);
+    worker.say(snapshot([]));
+    expect(submitted(worker)).toEqual(["How many datasets?"]);
   });
 });

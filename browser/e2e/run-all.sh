@@ -45,7 +45,7 @@ GALAXY_ROOT=http://127.0.0.1:8099 LLM_PROVIDER=ollama LLM_ROOT=http://127.0.0.1:
 await http://localhost:5173/ 40 /tmp/olit-e2e-dev.log
 
 ran=""
-for d in confirm session reload tabs unsaved-changes approval-gate ratelimit visualization-artifact artifact-survives-switch artifact-restore-newest run-python; do
+for d in confirm session reload tabs unsaved-visualization approval-gate ratelimit visualization-artifact artifact-survives-switch artifact-restore-newest run-python; do
     ran="$ran $d"
     curl -sf -o /dev/null http://127.0.0.1:8099/__reset
     if LLM_CONTEXT_WINDOW=64000 node "olit/e2e/$d-drive.cjs" > "/tmp/olit-e2e-$d.log" 2>&1; then
@@ -78,7 +78,7 @@ if ! env -u LLM_PROVIDER -u LLM_ROOT -u LLM_MODEL -u LLM_KEY npm run build > /tm
     exit 1
 fi
 
-for d in credentials artifact-pane artifact-resize provider-switch galaxy-boot galaxy-frame saved-session recovery reset python-isolation; do
+for d in credentials artifact-pane artifact-resize provider-switch galaxy-boot galaxy-frame saved-visualization saved-session chat-lifecycle unsaved-changes recovery reset python-isolation; do
     ran="$ran $d"
     curl -sf -o /dev/null http://127.0.0.1:8099/__reset
     if node "olit/e2e/$d-drive.cjs" > "/tmp/olit-e2e-$d.log" 2>&1; then
@@ -96,6 +96,16 @@ for browser in firefox webkit; do
         echo "PASS  python-isolation ($browser)"
     else
         failed "python-isolation ($browser)" "/tmp/olit-e2e-python-isolation-$browser.log"
+    fi
+done
+
+# Run the chat drive in Firefox and WebKit too; WebKit reports the wrong sender for some messages.
+for browser in firefox webkit; do
+    curl -sf -o /dev/null http://127.0.0.1:8099/__reset
+    if BROWSER=$browser node olit/e2e/chat-lifecycle-drive.cjs > "/tmp/olit-e2e-chat-lifecycle-$browser.log" 2>&1; then
+        echo "PASS  chat-lifecycle ($browser)"
+    else
+        failed "chat-lifecycle ($browser)" "/tmp/olit-e2e-chat-lifecycle-$browser.log"
     fi
 done
 
