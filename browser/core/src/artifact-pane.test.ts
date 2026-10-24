@@ -67,7 +67,7 @@ describe("artifact pane", () => {
     expect(collapsed()).toBe(false);
   });
 
-  it("updates the layout when the container is resized without a window resize", () => {
+  it("updates the layout when the container is resized", () => {
     const observed = new Map<Element, () => void>();
     const Real = globalThis.ResizeObserver;
     globalThis.ResizeObserver = class {

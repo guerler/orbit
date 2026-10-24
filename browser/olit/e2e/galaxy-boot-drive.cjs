@@ -82,7 +82,7 @@ async function connect(page) {
     check("the turn lists the history's datasets", /Datasets in this history.*peptide\.pdb/.test(prompts[0]?.tail || ""));
     check(
         "the system prompt is the session's own, without the plugin XML's",
-        !!system && /"role":"system","content":"You are Olit\./.test(system) && !/co-scientist that orchestrates/.test(system),
+        !!system && /"role":"system","content":"You are an AI assistant helping users work with Galaxy\./.test(system) && !/co-scientist that orchestrates/.test(system),
         (system || "").slice(0, 80),
     );
 

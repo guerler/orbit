@@ -45,7 +45,7 @@ let script = "confirm";
 // Saved visualizations as Galaxy keeps them: each a type, a title and its latest revision's config.
 const visualizations = new Map();
 const visualizationWrites = [];
-// Saved chats: turns and the Olit document (null for older GalaxyAI chats).
+// Saved chats: turns and the session document, or null for a chat saved without one.
 const chats = new Map();
 const chatWrites = [];
 // One tool run's job, as Galaxy reports it; a drive finishes it through /__job.
@@ -415,7 +415,7 @@ const server = http.createServer(async (req, res) => {
         if (found) found.user_id = params.get("user_id") || undefined;
         return json(res, 200, { owner: found?.user_id ?? null });
     }
-    // Adds an older GalaxyAI chat: turns, no document.
+    // Adds a chat saved without a session: turns, no document.
     if (url.startsWith("/__held")) {
         const params = new URL(url, "http://x").searchParams;
         const turns = JSON.parse(params.get("turns") || "[]");

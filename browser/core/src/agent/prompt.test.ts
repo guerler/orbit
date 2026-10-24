@@ -14,7 +14,7 @@ import {
   PLAN_CONVENTION,
   RECORD_WRITES,
   currentDateBlock,
-  identity,
+  IDENTITY,
   systemText,
 } from "./prompt";
 
@@ -401,7 +401,7 @@ describe("artifact links", () => {
 describe("a flavor's sections", () => {
   it("follow the identity line", () => {
     const text = systemText({ afterIdentity: ["## Flavor section"] });
-    expect(text.startsWith(`${identity()}\n\n## Flavor section\n\n`)).toBe(true);
+    expect(text.startsWith(`${IDENTITY}\n\n## Flavor section\n\n`)).toBe(true);
   });
 
   it("drop out when empty", () => {

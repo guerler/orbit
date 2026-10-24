@@ -9,7 +9,7 @@ import { DEFAULT_COMPACTION_POLICY } from "@earendil-works/pi-durable";
 import { MAX_AUTO_FOLLOW_UPS } from "./documents";
 import { MAX_STEPS } from "./extension";
 import { connect, keyVariable } from "./model";
-import { starter } from "./notebook";
+import { STARTER } from "./notebook";
 import { LOOP } from "./runtime";
 import { opsTools } from "./ops";
 import { defaultEndpoint, PROVIDERS, resolve } from "./providers";
@@ -270,6 +270,6 @@ export async function describe(layout: DescribeLayout, flavor: AgentFlavor) {
     providers: await providers(),
     follow_ups: followUps(),
     skills: skills(join(core, SOURCE, "skills", "galaxy-skills"), join(core, "skills.lock.json")),
-    record: { starter: starter(brand), resume_tool: "notebook_resume" },
+    record: { starter: STARTER, resume_tool: "notebook_resume" },
   };
 }

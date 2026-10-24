@@ -7,10 +7,7 @@ export class NotYours extends Error {}
 /** A loaded saved conversation. */
 export interface Opened {
   document: SessionDocument;
-  /**
-   * Set for a chat Olit did not save, such as an older GalaxyAI chat. Olit shows the note,
-   * continues in the current history, and saves changes as a new chat.
-   */
+  /** Set for a chat saved without a session: it continues in the current history and saves as new. */
   held?: { note: string };
 }
 

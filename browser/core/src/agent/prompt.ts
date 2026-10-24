@@ -18,7 +18,6 @@ import {
   sraImportGuidance,
   verificationBlock,
 } from "../../../../shared/prompt-blocks.js";
-import { DEFAULT_BRAND } from "./brand";
 
 // System-prompt blocks, adopted from Orbit's `extensions/loom/context.ts`.
 
@@ -238,18 +237,15 @@ export interface PromptOptions {
   /** A flavor's own Galaxy terms, as bullets in the terminology list. */
   terminology?: string[];
   galaxyRoot?: string;
-  /** What the agent is called: the brand's name. */
-  name?: string;
 }
 
 function galaxyNotice(status: GalaxyStatus): string {
   return status === GALAXY_UNREACHABLE ? GALAXY_UNAVAILABLE : "";
 }
 
-export const identity = (name = DEFAULT_BRAND.name) => `You are ${name}.`;
+export const IDENTITY = "You are an AI assistant helping users work with Galaxy.";
 
 export function systemText({
-  name,
   model,
   provider,
   galaxyStatus = GALAXY_READY,
@@ -260,7 +256,7 @@ export function systemText({
   // As loom does: the Galaxy guidance rides on the connection, whichever tools are granted.
   const galaxy = (block: string) => (galaxyStatus === GALAXY_READY ? block : "");
   return [
-    identity(name),
+    IDENTITY,
     ...afterIdentity,
     activeModelBlock(model, provider),
     NO_LOCAL_SHELL,

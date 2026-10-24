@@ -35,7 +35,7 @@ const shown = (frame, pattern, ms = 120000) =>
     await first.frame.locator("#input").fill("start the record for this analysis");
     await first.frame.locator("#send-btn").click();
     check("the session writes its record", await shown(first.frame, "Noted in the record.", 60000));
-    const record = (await (await fetch(`${STUB}/__pages`)).json()).pages.find((p) => /^olit-/.test(p.slug));
+    const record = (await (await fetch(`${STUB}/__pages`)).json()).pages.find((p) => /^notebook-/.test(p.slug));
     check("the record is attached to the history the session was started on",
         record?.history_id === "h-drecover", JSON.stringify(record && { slug: record.slug, history: record.history_id }));
 

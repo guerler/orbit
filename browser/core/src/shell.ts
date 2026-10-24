@@ -165,7 +165,6 @@ export async function mountOrbitBrowser(
   }
   const sessions = options.sessions;
   const brand = options.brand ?? DEFAULT_BRAND;
-  const name = brand.name;
   const target = {
     root: options.galaxyRoot,
     datasetId: options.datasetId,
@@ -386,129 +385,125 @@ export async function mountOrbitBrowser(
     }
   }
 
-  const agent = new AgentClient(
-    (message) => {
-      if (message.type === "events") {
-        view.apply(message.events);
-        if (afterReset && message.events.some((e) => e.type === "snapshot")) {
-          info(afterReset);
-          afterReset = undefined;
-          ask();
-        }
-        refreshControls();
-      } else if (message.type === "settled") {
-        settledOne(message.settled);
-      } else if (message.type === "held") {
-        if (message.held) {
-          info(
-            message.held === "paused"
-              ? "Galaxy results are waiting -- automatic follow-up is paused. Say continue when you're ready."
-              : "Galaxy results are waiting -- automatic follow-up paused after several automatic turns. Say continue to resume.",
-          );
-        }
-      } else if (message.type === "confirm") {
-        confirm.show(String(message.id), message);
-      } else if (message.type === "withdrawn") {
-        confirm.dismiss(String(message.id));
-      } else if (message.type === "ready") {
-        ready = true;
-        galaxyStatus = message.galaxy;
-        refreshControls();
-        if (message.unkept) {
-          chat.addErrorMessage(
-            `This browser can't keep conversations (${message.unkept}), so this one ends when the ` +
-              "page closes." +
-              (sessions?.keepHint ? ` ${sessions.keepHint}` : ""),
-          );
-        }
-        if (message.galaxyProblem) {
-          chat.addErrorMessage(
-            `Galaxy did not answer when this session opened (${message.galaxyProblem}), so no Galaxy tool ` +
-              "can run in this session. Reload once Galaxy is back.",
-          );
-        }
-        if (message.recordsProblem) {
-          chat.addErrorMessage(
-            `Could not look for notebooks on this history (${message.recordsProblem}), so this ` +
-              "starts a new one.",
-          );
-        }
-        if (launch.savedProblem) {
-          chat.addErrorMessage(launch.savedProblem);
-        }
-        if (launch.saved) {
-          info("Opened a saved conversation.");
-        }
-        if (continuing) {
-          info(continuing);
-        }
-        info(
-          launch.saved
-            ? "Ready."
-            : view.turns
-              ? "Restored this history's conversation from this browser. Ready."
-              : "Ready. Ask me to run something.",
-        );
-        if (launch.greeting) {
-          info(launch.greeting);
-        }
+  const agent = new AgentClient((message) => {
+    if (message.type === "events") {
+      view.apply(message.events);
+      if (afterReset && message.events.some((e) => e.type === "snapshot")) {
+        info(afterReset);
+        afterReset = undefined;
         ask();
-      } else if (message.type === "recoverable") {
-        // The browser kept nothing of a session here; the user says which, if any, this is.
-        const line = info(
-          "This browser has no conversation for this history. Start a new one, with a new notebook " +
-            "or adding to one of this history's notebooks. Adding to a notebook starts a fresh chat " +
-            "without its earlier transcript." +
-            (sessions?.reopenHint ? ` ${sessions.reopenHint}` : ""),
-        );
-        const choices = document.createElement("div");
-        choices.className = "launch-choices";
-        line.append(choices);
-        const choose = (pageId?: string) => {
-          choices.querySelectorAll("button").forEach((b) => (b.disabled = true));
-          agent.recover(pageId);
-        };
-        for (const record of message.records) {
-          const button = document.createElement("button");
-          button.className = "plan-btn";
-          button.textContent = `New conversation, add to ${record.title} (updated ${localTime(record.updated)})`;
-          button.addEventListener("click", () => {
-            continuing =
-              `New conversation, without the earlier transcript. Notes go to the notebook ` +
-              `${record.title}.`;
-            choose(record.pageId);
-          });
-          choices.append(button);
-        }
-        const fresh = document.createElement("button");
-        fresh.className = "plan-btn";
-        fresh.textContent = "New conversation, new notebook";
-        fresh.addEventListener("click", () => choose());
-        choices.append(fresh);
-      } else if (message.type === "waiting") {
-        const line = info("This session is open in another tab. ");
-        const take = document.createElement("button");
-        take.className = "plan-btn";
-        take.textContent = "Use it here";
-        take.addEventListener("click", () => {
-          take.disabled = true;
-          agent.open({ ...opening, steal: true });
-        });
-        line.append(take);
-      } else if (message.type === "lost") {
-        ready = false;
-        refreshControls();
-        chat.addErrorMessage("This session was opened in another tab, which has it now.");
-      } else if (message.type === "failed") {
-        console.error(`[${brand.id}] worker failed`, message.message);
-        chat.hideThinking();
-        setBusy(false);
-        chat.addErrorMessage(briefly(message.message));
       }
-    },
-    options.createWorker,
-    name,
-  );
+      refreshControls();
+    } else if (message.type === "settled") {
+      settledOne(message.settled);
+    } else if (message.type === "held") {
+      if (message.held) {
+        info(
+          message.held === "paused"
+            ? "Galaxy results are waiting -- automatic follow-up is paused. Say continue when you're ready."
+            : "Galaxy results are waiting -- automatic follow-up paused after several automatic turns. Say continue to resume.",
+        );
+      }
+    } else if (message.type === "confirm") {
+      confirm.show(String(message.id), message);
+    } else if (message.type === "withdrawn") {
+      confirm.dismiss(String(message.id));
+    } else if (message.type === "ready") {
+      ready = true;
+      galaxyStatus = message.galaxy;
+      refreshControls();
+      if (message.unkept) {
+        chat.addErrorMessage(
+          `This browser can't keep conversations (${message.unkept}), so this one ends when the ` +
+            "page closes." +
+            (sessions?.keepHint ? ` ${sessions.keepHint}` : ""),
+        );
+      }
+      if (message.galaxyProblem) {
+        chat.addErrorMessage(
+          `Galaxy did not answer when this session opened (${message.galaxyProblem}), so no Galaxy tool ` +
+            "can run in this session. Reload once Galaxy is back.",
+        );
+      }
+      if (message.recordsProblem) {
+        chat.addErrorMessage(
+          `Could not look for notebooks on this history (${message.recordsProblem}), so this ` +
+            "starts a new one.",
+        );
+      }
+      if (launch.savedProblem) {
+        chat.addErrorMessage(launch.savedProblem);
+      }
+      if (launch.saved) {
+        info("Opened a saved conversation.");
+      }
+      if (continuing) {
+        info(continuing);
+      }
+      info(
+        launch.saved
+          ? "Ready."
+          : view.turns
+            ? "Restored this history's conversation from this browser. Ready."
+            : "Ready. Ask me to run something.",
+      );
+      if (launch.greeting) {
+        info(launch.greeting);
+      }
+      ask();
+    } else if (message.type === "recoverable") {
+      // The browser kept nothing of a session here; the user says which, if any, this is.
+      const line = info(
+        "This browser has no conversation for this history. Start a new one, with a new notebook " +
+          "or adding to one of this history's notebooks. Adding to a notebook starts a fresh chat " +
+          "without its earlier transcript." +
+          (sessions?.reopenHint ? ` ${sessions.reopenHint}` : ""),
+      );
+      const choices = document.createElement("div");
+      choices.className = "launch-choices";
+      line.append(choices);
+      const choose = (pageId?: string) => {
+        choices.querySelectorAll("button").forEach((b) => (b.disabled = true));
+        agent.recover(pageId);
+      };
+      for (const record of message.records) {
+        const button = document.createElement("button");
+        button.className = "plan-btn";
+        button.textContent = `New conversation, add to ${record.title} (updated ${localTime(record.updated)})`;
+        button.addEventListener("click", () => {
+          continuing =
+            `New conversation, without the earlier transcript. Notes go to the notebook ` +
+            `${record.title}.`;
+          choose(record.pageId);
+        });
+        choices.append(button);
+      }
+      const fresh = document.createElement("button");
+      fresh.className = "plan-btn";
+      fresh.textContent = "New conversation, new notebook";
+      fresh.addEventListener("click", () => choose());
+      choices.append(fresh);
+    } else if (message.type === "waiting") {
+      const line = info("This session is open in another tab. ");
+      const take = document.createElement("button");
+      take.className = "plan-btn";
+      take.textContent = "Use it here";
+      take.addEventListener("click", () => {
+        take.disabled = true;
+        agent.open({ ...opening, steal: true });
+      });
+      line.append(take);
+    } else if (message.type === "lost") {
+      ready = false;
+      refreshControls();
+      chat.addErrorMessage("This session was opened in another tab, which has it now.");
+    } else if (message.type === "failed") {
+      console.error(`[${brand.id}] worker failed`, message.message);
+      chat.hideThinking();
+      setBusy(false);
+      chat.addErrorMessage(briefly(message.message));
+    }
+  }, options.createWorker);
   started = agent;
   agent.open(opening);
 

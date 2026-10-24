@@ -60,10 +60,10 @@ function placingArtifacts(tool: AgentTool): AgentTool {
 /** Every tool the agent can offer, before a session filters them by capability. */
 export function agentTools(skills = flavoredSkills(), flavor: AgentFlavor = {}): AgentTool[] {
   const brand = flavor.brand ?? DEFAULT_BRAND;
-  const python = pythonTool(brand.name);
+  const python = pythonTool();
   const flavored = flavor.tools?.() ?? [];
   const rest = [
-    ...notebookTools(brand),
+    ...notebookTools(),
     ...gtnTools(),
     ...enaTools(),
     skillsTool(skills),
@@ -74,7 +74,7 @@ export function agentTools(skills = flavoredSkills(), flavor: AgentFlavor = {}):
   const galaxy = [
     ...opsTools(annotating(flavor.annotators, tag), OPS_POLICY),
     ...galaxyTools(tag),
-  ].map((t) => misrouted(t, own, brand.name));
+  ].map((t) => misrouted(t, own));
   return [python, ...[...galaxy, ...flavored].map(placingArtifacts), ...rest];
 }
 
@@ -83,7 +83,7 @@ export function agentTools(skills = flavoredSkills(), flavor: AgentFlavor = {}):
  * all, so say where the tool lives instead. A tool_id asks for it directly; a query hunts the
  * catalog for it.
  */
-function misrouted(tool: AgentTool, own: Set<string>, name: string): AgentTool {
+function misrouted(tool: AgentTool, own: Set<string>): AgentTool {
   return {
     ...tool,
     run: async (args: Record<string, unknown>, ctx: Context) => {
@@ -91,13 +91,11 @@ function misrouted(tool: AgentTool, own: Set<string>, name: string): AgentTool {
         (v): v is string => typeof v === "string" && own.has(v.trim()),
       );
       if (wanted && wanted === args.tool_id) {
-        return fail(
-          `'${wanted}' is ${article(name)} ${name} tool, not a Galaxy tool. Call ${wanted} directly.`,
-        );
+        return fail(`'${wanted}' is a built-in tool, not a Galaxy tool. Call ${wanted} directly.`);
       }
       if (wanted) {
         return fail(
-          `'${wanted}' is ${article(name)} ${name} tool rather than a Galaxy tool, so the tool catalog does not ` +
+          `'${wanted}' is a built-in tool rather than a Galaxy tool, so the tool catalog does not ` +
             "hold it. It is already in your tool list if you need it.",
         );
       }
@@ -105,9 +103,6 @@ function misrouted(tool: AgentTool, own: Set<string>, name: string): AgentTool {
     },
   };
 }
-
-/** "an Olit tool", "an Orbit tool", "a Nova tool". */
-const article = (word: string) => (/^[aeiou]/i.test(word) ? "an" : "a");
 
 /** galaxy-ops over the same transport as the agent's own Galaxy client. */
 export function galaxyOps(options: GalaxyOptions): GalaxyContext {

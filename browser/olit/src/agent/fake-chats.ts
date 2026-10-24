@@ -1,7 +1,7 @@
 /** Test helper: an in-memory version of Galaxy's chat API. */
 import { json } from "@galaxyproject/orbit-browser/testing";
 
-/** A stored chat: its turns, and the document Olit saved (null for older GalaxyAI chats). */
+/** A stored chat: its turns, and its session document or null. */
 export interface ChatRow {
   agent_type: string;
   messages: Array<{ query: string; response: string }>;

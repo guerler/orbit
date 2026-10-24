@@ -1,5 +1,4 @@
 import type { OpenRequest, PageMessage, WorkerMessage } from "./worker";
-import { DEFAULT_BRAND } from "./brand";
 
 /** The agent worker as the page sees it: requests in, the conversation's state and events out. */
 export class AgentClient {
@@ -15,11 +14,7 @@ export class AgentClient {
    * `createWorker` belongs to the flavor: the worker entry it names is what decides which tools
    * the agent has, and a `new Worker(new URL(...))` here would bundle a second one without them.
    */
-  constructor(
-    listen: (message: WorkerMessage) => void,
-    createWorker: () => Worker,
-    name = DEFAULT_BRAND.name,
-  ) {
+  constructor(listen: (message: WorkerMessage) => void, createWorker: () => Worker) {
     this.worker = createWorker();
     this.worker.onmessage = ({ data }: MessageEvent<WorkerMessage>) => {
       if (data.type === "reply") {
@@ -34,7 +29,7 @@ export class AgentClient {
     // A worker that never loads, or dies outside a message, would otherwise leave Send inert.
     this.worker.onerror = (e) => {
       e.preventDefault();
-      listen({ type: "failed", message: e.message || `${name}'s worker failed to start.` });
+      listen({ type: "failed", message: e.message || "The assistant could not start." });
     };
   }
 
