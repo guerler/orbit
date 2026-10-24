@@ -238,7 +238,6 @@ export class Runtime {
         const sections = flavor?.promptSections?.({ model, provider, datasetId }) ?? {};
         return [
           systemText({
-            name: brand.name,
             model,
             provider,
             galaxyStatus,
@@ -360,7 +359,7 @@ export class Runtime {
    * The brand's records attached to the launch history, for a session this browser no longer keeps.
    */
   records(historyId: string | undefined): Promise<RecordSummary[]> {
-    return historyId ? recordsOn(this.galaxy, historyId, this.brand) : Promise.resolve([]);
+    return historyId ? recordsOn(this.galaxy, historyId) : Promise.resolve([]);
   }
 
   /**

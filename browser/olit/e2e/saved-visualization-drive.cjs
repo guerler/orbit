@@ -102,7 +102,7 @@ async function save(frame) {
         const other = await machine(browser, `${HOST}?visualization_id=${visualization?.id}&frame=1`, false);
         const whose = owner ? "another user's session" : "a session with no owner";
         const refused = await other.frame
-            .locator("text=/Olit opens only your own saved conversations/")
+            .locator("text=/Only your own saved conversations can be opened/")
             .first()
             .waitFor({ timeout: 30000 })
             .then(() => true, () => false);

@@ -240,7 +240,7 @@ describe("a turn", () => {
       { text: "ok" },
     ]);
     const [first, second] = results(result.entries).map((m) => contentText(m.content));
-    expect(first).toContain("'lineage_report' is an Orbit tool, not a Galaxy tool");
+    expect(first).toContain("'lineage_report' is a built-in tool, not a Galaxy tool");
     expect(second).toContain("the tool catalog does not hold it");
   });
 
@@ -365,7 +365,7 @@ describe("a turn", () => {
     const { requests } = await turn([{ text: "ok" }], { history_id: "h1" });
     const sent = requests[0].messages as Array<{ role: string; content: string }>;
     expect(sent[0].role).toBe("system");
-    expect(sent[0].content).toContain("You are Orbit.");
+    expect(sent[0].content).toContain("You are an AI assistant helping users work with Galaxy.");
     expect(sent.at(-2)!.content).toContain('Updated system prompt section "record"');
     expect(sent.at(-2)!.content).toContain("history `h1`");
     expect(sent.at(-1)).toEqual({ role: "user", content: "hi" });
@@ -375,8 +375,8 @@ describe("a turn", () => {
 describe("a restart, as a browser with nothing stored does it", () => {
   const RECORD = {
     id: "p7",
-    slug: "orbit-sess-7",
-    title: "Orbit Notebook (sess-7)",
+    slug: "notebook-7a1b2c3d-0000-4000-8000-000000000007",
+    title: "Notebook (7a1b2c3d)",
     create_time: "2026-10-01T09:00:00",
     update_time: "2026-10-02T09:00:00",
   };
@@ -401,7 +401,10 @@ describe("a restart, as a browser with nothing stored does it", () => {
   });
 
   it("offers the history's records and starts nothing until told which session this is", async () => {
-    const session = await launched([RECORD, { id: "p9", slug: "not-orbit", title: "Mine" }]);
+    const session = await launched([
+      RECORD,
+      { id: "p9", slug: "notebook-analysis", title: "Notebook analysis" },
+    ]);
     const before = session.conversation.id;
     const offered = await session.restart();
     expect(offered.map((r) => r.pageId)).toEqual(["p7"]);
@@ -410,7 +413,7 @@ describe("a restart, as a browser with nothing stored does it", () => {
     expect(session.conversation.id).not.toBe(before);
     // The session's identity and record come back; its conversation does not.
     expect(await bound(session)).toMatchObject({
-      sessionId: "sess-7",
+      sessionId: "7a1b2c3d-0000-4000-8000-000000000007",
       pageId: "p7",
       historyId: "h1",
       startedAt: "2026-10-01T09:00:00",
@@ -422,7 +425,7 @@ describe("a restart, as a browser with nothing stored does it", () => {
     const session = await launched([RECORD]);
     await session.restart();
     await session.recover();
-    expect((await bound(session))?.sessionId).not.toBe("sess-7");
+    expect((await bound(session))?.sessionId).not.toBe("7a1b2c3d-0000-4000-8000-000000000007");
     expect((await bound(session))?.pageId).toBeUndefined();
   });
 });

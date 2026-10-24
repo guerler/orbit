@@ -81,7 +81,7 @@ describe("launching a saved conversation", () => {
     expect(asked).toEqual([]);
   });
 
-  it("opens it without a history, not in the current history", async () => {
+  it("opens a save without a history as saved", async () => {
     const asked = routes(CURRENT);
     const document = session();
     const { definition } = store(async () => ({ document }));
@@ -91,13 +91,13 @@ describe("launching a saved conversation", () => {
     expect(asked).toEqual([]);
   });
 
-  it("continues an older GalaxyAI chat in the current history, with a note", async () => {
+  it("continues a chat without a session in the current history, with its note", async () => {
     routes(CURRENT);
     const document = session();
-    const { definition } = store(async () => ({ document, held: { note: "Held before." } }));
+    const { definition } = store(async () => ({ document, held: { note: "Saved as new." } }));
     expect(await launched(definition, { savedId: "g1" })).toEqual({
       saved: { id: "g1", document: { ...document, history_id: "h9" } },
-      greeting: "Held before.",
+      greeting: "Saved as new.",
     });
   });
 
@@ -107,7 +107,9 @@ describe("launching a saved conversation", () => {
       throw new NotYours("it was not saved by the signed-in user");
     });
     const context = await launched(definition, { savedId: "s1", datasetId: "d1" });
-    expect(context.stop).toMatch(/only your own saved conversations, and s1 is not one/);
+    expect(context.stop).toMatch(
+      /Only your own saved conversations can be opened, and s1 is not one/,
+    );
     expect(context.saved).toBeUndefined();
     expect(asked).toEqual([]);
   });

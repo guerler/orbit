@@ -16,7 +16,6 @@ import { Outcome, type Context } from "./tool";
 
 const HISTORY = "f2db41e1fa331b3e";
 const SESSION = "4f2a9c1b-7d3e-4a21-9f00-1b2c3d4e5f60";
-const NOVA = { id: "nova", name: "Nova" };
 
 type Page = Record<string, any>;
 
@@ -75,8 +74,8 @@ describe("record identity", () => {
     const [path, payload] = g.posted[0];
     expect(path).toBe("api/pages");
     expect(payload).not.toHaveProperty("history_id");
-    expect(payload.slug).toBe(`orbit-${SESSION}`);
-    expect(payload.title).toBe("Orbit Notebook (4f2a9c1b)");
+    expect(payload.slug).toBe(`notebook-${SESSION}`);
+    expect(payload.title).toBe("Notebook (4f2a9c1b)");
     expect(payload.content_format).toBe("markdown");
   });
 
@@ -294,14 +293,12 @@ describe("page identity", () => {
   });
 
   it("names the notebook after its session", () => {
-    expect(titleForSession(SESSION)).toBe("Orbit Notebook (4f2a9c1b)");
-    expect(titleForSession(SESSION, NOVA)).toBe("Nova Notebook (4f2a9c1b)");
+    expect(titleForSession(SESSION)).toBe("Notebook (4f2a9c1b)");
   });
 
   it("derives a legal Galaxy slug from the session", () => {
     const slug = slugForSession(SESSION);
-    expect(slug).toBe(`orbit-${SESSION}`);
-    expect(slugForSession(SESSION, NOVA)).toBe(`nova-${SESSION}`);
+    expect(slug).toBe(`notebook-${SESSION}`);
     expect(slug).toMatch(/^[a-z0-9-]+$/);
   });
 
@@ -318,24 +315,47 @@ describe("a session's record and the history it was started on", () => {
     await resume(g.galaxy, "sess-1", undefined, "h1");
     const [path, body] = g.posted[0];
     expect(path).toBe("api/pages");
-    expect(body).toMatchObject({ slug: "orbit-sess-1", history_id: "h1" });
+    expect(body).toMatchObject({ slug: "notebook-sess-1", history_id: "h1" });
   });
 
-  it("lists the brand's records attached to a history, by the session each belongs to", async () => {
+  it("lists the records attached to a history, by the session each belongs to", async () => {
     const g = fakeGalaxy([], async (path) =>
       path === "api/pages?history_id=h1"
         ? [
-            { id: "p1", slug: "orbit-a", title: "A", create_time: "1", update_time: "2026-10-01" },
-            { id: "p2", slug: "orbit-b", title: "B", create_time: "1", update_time: "2026-10-03" },
-            { id: "p3", slug: "results", title: "Not a record", update_time: "2026-10-04" },
-            { id: "p4", slug: "orbit-c", title: "Gone", deleted: true },
+            {
+              id: "p1",
+              slug: "notebook-aaaaaaaa-0000-4000-8000-00000000000a",
+              title: "A",
+              create_time: "1",
+              update_time: "2026-10-01",
+            },
+            {
+              id: "p2",
+              slug: "notebook-bbbbbbbb-0000-4000-8000-00000000000b",
+              title: "B",
+              create_time: "1",
+              update_time: "2026-10-03",
+            },
+            { id: "p3", slug: "results", title: "Results", update_time: "2026-10-04" },
+            {
+              id: "p5",
+              slug: "notebook-analysis",
+              title: "Notebook analysis",
+              update_time: "2026-10-05",
+            },
+            {
+              id: "p4",
+              slug: "notebook-cccccccc-0000-4000-8000-00000000000c",
+              title: "Gone",
+              deleted: true,
+            },
           ]
         : [],
     );
     const records = await recordsOn(g.galaxy, "h1");
     expect(records.map((r) => [r.pageId, r.sessionId])).toEqual([
-      ["p2", "b"],
-      ["p1", "a"],
+      ["p2", "bbbbbbbb-0000-4000-8000-00000000000b"],
+      ["p1", "aaaaaaaa-0000-4000-8000-00000000000a"],
     ]);
   });
 });

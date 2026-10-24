@@ -205,9 +205,13 @@ describe("a saved Olit visualization is a restorable conversation", () => {
     await say(two, reopened, "again");
     const sent = requests.at(-1)!.messages;
     expect(sent[0].role).toBe("system");
-    expect(sent[0].content).toContain("You are Olit.");
+    expect(sent[0].content).toContain("You are an AI assistant helping users work with Galaxy.");
     expect(
-      sent.filter((m) => m.role === "system" && m.content.includes("You are Olit.")),
+      sent.filter(
+        (m) =>
+          m.role === "system" &&
+          m.content.includes("You are an AI assistant helping users work with Galaxy."),
+      ),
     ).toHaveLength(1);
   });
 
@@ -232,11 +236,11 @@ describe("a saved Olit visualization is a restorable conversation", () => {
     const one = await machine();
     const a = title(await one.export(await one.create({})));
     const b = title(await one.export(await one.create({})));
-    expect(a).toMatch(/^Olit Session \([0-9a-f]{8}\)$/);
+    expect(a).toMatch(/^Conversation \([0-9a-f]{8}\)$/);
     expect(a).not.toEqual(b);
   });
 
-  it("continues an older GalaxyAI chat and saves it as a new chat", async () => {
+  it("continues a chat without a session and saves it as a new chat", async () => {
     const { rows, requests, saved } = world();
     rows.set("g1", {
       agent_type: "tool_recommendation",
