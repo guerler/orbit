@@ -13,9 +13,10 @@ import {
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { savedSessions } from "../saved-session";
+import { chats, HELD_NOTE } from "../stores/chats";
+import { title } from "../stores/visualizations";
 import { Binding, json, text } from "@galaxyproject/orbit-browser/testing";
-import { visualizationStore } from "./fake-visualizations";
+import { chatStore } from "./fake-chats";
 import { olitFlavor } from "./flavor";
 import { connectGalaxy } from "@galaxyproject/orbit-browser/testing";
 import { artifactsOf } from "@galaxyproject/orbit-browser/artifacts";
@@ -29,17 +30,15 @@ import {
 } from "@galaxyproject/orbit-browser/testing";
 import type { SessionDocument } from "@galaxyproject/orbit-browser/agent";
 import { usageTotals } from "@galaxyproject/orbit-browser/testing";
-import { title } from "../saved-session";
 import type { Python } from "@galaxyproject/orbit-browser/agent";
 
 const ROOT = "http://galaxy.test/";
 const LLM = "http://llm.test/v1";
 const KEY = "sk-test-secret-value";
-const USER = "f2db41e1fa331b3e";
 
-/** A Galaxy keeping visualizations in memory, so a "second machine" reads them back, and a model. */
+/** In-memory Galaxy chats that a second session reads back, plus a model. */
 function world() {
-  const { rows, answer } = visualizationStore(USER);
+  const { rows, answer } = chatStore();
   const requests: Array<{ messages: Array<{ role: string; content: string }> }> = [];
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : new Request(String(input), init);
@@ -52,7 +51,7 @@ function world() {
       json(request.url.endsWith("api/version") ? { version_major: "26.1" } : {})
     );
   });
-  return { rows, requests, saved: savedSessions(connectGalaxy({ root: ROOT })) };
+  return { rows, requests, saved: chats.connect(connectGalaxy({ root: ROOT })) };
 }
 
 const CHART = { kind: "vega-lite", title: "counts", spec: { mark: "bar" } };
@@ -113,7 +112,7 @@ describe("a saved Olit visualization is a restorable conversation", () => {
     const id = await saved.save(document);
 
     const two = await machine();
-    const reopened = await two.open((await saved.load(id))!, id);
+    const reopened = await two.open((await saved.load(id))!.document, id);
     const bound = await two.harness.snapshot(Binding, reopened.id, context);
     expect(bound).toMatchObject({
       sessionId: document.session.id,
@@ -149,7 +148,7 @@ describe("a saved Olit visualization is a restorable conversation", () => {
     const id = await saved.save(await one.export(conversation));
 
     const two = await machine();
-    const reopened = await two.open((await saved.load(id))!, id);
+    const reopened = await two.open((await saved.load(id))!.document, id);
     const after = await reopened.context(context);
     const roles = (view: typeof before) =>
       view.messages.filter((m) => m.role !== "system").map((m) => m.role);
@@ -166,7 +165,7 @@ describe("a saved Olit visualization is a restorable conversation", () => {
     const id = await saved.save(await one.export(conversation));
 
     const two = await machine();
-    const reopened = await two.open((await saved.load(id))!, id);
+    const reopened = await two.open((await saved.load(id))!.document, id);
     await say(two, reopened, "second");
     expect((await two.export(reopened)).session.usage).toEqual({
       input: 20,
@@ -175,7 +174,7 @@ describe("a saved Olit visualization is a restorable conversation", () => {
     });
   });
 
-  it("continues on the second machine and saves back to the same visualization", async () => {
+  it("continues on the second machine and saves back to the same chat", async () => {
     const { rows, saved } = world();
     const one = await machine();
     const first = await one.create({ historyId: "h1" });
@@ -183,12 +182,12 @@ describe("a saved Olit visualization is a restorable conversation", () => {
     const id = await saved.save(await one.export(first));
 
     const two = await machine();
-    const continued = await two.open((await saved.load(id))!, id);
+    const continued = await two.open((await saved.load(id))!.document, id);
     await say(two, continued, "second");
     await saved.save(await two.export(continued), id);
 
     expect(rows.size).toBe(1);
-    const stored = (await saved.load(id))!;
+    const stored = (await saved.load(id))!.document;
     expect(stored.session.turn).toBe(2);
     expect(said(stored)).toEqual(["first", "second"]);
   });
@@ -202,7 +201,7 @@ describe("a saved Olit visualization is a restorable conversation", () => {
     expect(document.entries.some((e) => e.kind === "pi.system")).toBe(false);
 
     const two = await machine();
-    const reopened = await two.open((await saved.load(await saved.save(document)))!, "v1");
+    const reopened = await two.open((await saved.load(await saved.save(document)))!.document, "c1");
     await say(two, reopened, "again");
     const sent = requests.at(-1)!.messages;
     expect(sent[0].role).toBe("system");
@@ -236,6 +235,36 @@ describe("a saved Olit visualization is a restorable conversation", () => {
     expect(a).toMatch(/^Olit Session \([0-9a-f]{8}\)$/);
     expect(a).not.toEqual(b);
   });
+
+  it("continues an older GalaxyAI chat and saves it as a new chat", async () => {
+    const { rows, requests, saved } = world();
+    rows.set("g1", {
+      agent_type: "tool_recommendation",
+      messages: [{ query: "Which aligner for RNA-seq?", response: "HISAT2 or STAR." }],
+      document: null,
+    });
+    const opened = (await saved.load("g1"))!;
+    expect(opened.held).toEqual({ note: HELD_NOTE });
+
+    const one = await machine();
+    const continued = await one.open({ ...opened.document, history_id: "h1" }, "g1");
+    await say(one, continued, "And for counting?");
+    const sent = requests.at(-1)!.messages;
+    const turns = sent.filter((m) => m.role !== "system");
+    expect(turns.map((m) => [m.role, m.content])).toEqual([
+      ["user", "Which aligner for RNA-seq?"],
+      ["assistant", "HISAT2 or STAR."],
+      ["user", "And for counting?"],
+    ]);
+
+    const id = await saved.save(await one.export(continued), "g1");
+    expect(id).not.toBe("g1");
+    expect(rows.get("g1")!.document).toBeNull();
+    expect(rows.get(id)!.messages.map((turn) => turn.query)).toEqual([
+      "Which aligner for RNA-seq?",
+      "And for counting?",
+    ]);
+  });
 });
 
 describe("a new conversation", () => {
@@ -250,7 +279,7 @@ describe("a new conversation", () => {
     const second = await one.create({ historyId: "h1" });
     const fresh = await one.export(second);
     expect(fresh.session.id).not.toBe(document.session.id);
-    expect((await saved.load(id))!.session.id).toBe(document.session.id);
+    expect((await saved.load(id))!.document.session.id).toBe(document.session.id);
     expect(rows.size).toBe(1);
     expect((await one.continuing({ historyId: "h1" })).id).toBe(second.id);
   });
@@ -293,7 +322,7 @@ describe("local continuity", () => {
     await one.saved(conversation, id, document);
     await say(one, conversation, "unsaved local turn");
 
-    const reopened = await one.open((await saved.load(id))!, id);
+    const reopened = await one.open((await saved.load(id))!.document, id);
     expect(reopened.id).not.toBe(conversation.id);
     expect(said(await one.export(reopened))).toEqual(["saved state"]);
   });
@@ -307,7 +336,7 @@ describe("local continuity", () => {
     const id = await saved.save(document);
     await one.saved(conversation, id, document);
 
-    expect((await one.open((await saved.load(id))!, id)).id).toBe(conversation.id);
+    expect((await one.open((await saved.load(id))!.document, id)).id).toBe(conversation.id);
   });
 });
 
@@ -428,7 +457,7 @@ describe("a compacted conversation, as the page draws it", () => {
     const id = await saved.save(await one.export(await compacted(one)));
 
     const two = await machine();
-    const reopened = await two.open((await saved.load(id))!, id);
+    const reopened = await two.open((await saved.load(id))!.document, id);
     const { shown, charts } = await attached(two, reopened);
     expect(shown).toEqual(WHOLE);
     expect(charts).toEqual([[CHART.title]]);

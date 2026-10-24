@@ -45,6 +45,9 @@ let script = "confirm";
 // Saved visualizations as Galaxy keeps them: each a type, a title and its latest revision's config.
 const visualizations = new Map();
 const visualizationWrites = [];
+// Saved chats: turns and the Olit document (null for older GalaxyAI chats).
+const chats = new Map();
+const chatWrites = [];
 // One tool run's job, as Galaxy reports it; a drive finishes it through /__job.
 let jobState = "queued";
 // Pages as Galaxy keeps them: a page may be attached to a history (a history notebook) and listed by it.
@@ -250,19 +253,59 @@ const escapeAttr = (text) =>
 // data-incoming, the same plugin href, so a built app resolves Pyodide the way it does
 // in a deployment rather than from the dev server. VisualizationDisplay.vue hands a plugin
 // opened on a dataset `{ dataset_id }` and nothing else: no history, and a title only for a
-// saved visualization.
+// saved visualization. With `view=chat`, the plugin is mounted as the chat with `{ view: "chat" }`
+// plus `exchange_id` or `question`.
+/**
+ * Host page that mounts the plugin as Galaxy's chat. Each window.__command remounts the frame.
+ * Records messages from the frame's window only.
+ */
+function galaxyAi(config) {
+    return [
+        "  const record = (window.__galaxyAi = { mounts: [], saved: [], configs: [] });",
+        "  let frame = document.getElementById('galaxy_visualization');",
+        "  const mount = (config) => {",
+        "    record.mounts.push(config);",
+        "    const next = document.createElement('iframe');",
+        "    next.id = 'galaxy_visualization';",
+        "    next.title = 'visualization';",
+        "    next.style.cssText = frame.style.cssText;",
+        "    frame.replaceWith(next);",
+        "    frame = next;",
+        "    fill(frame.contentDocument, config);",
+        "  };",
+        "  window.addEventListener('message', (event) => {",
+        "    const m = event.data;",
+        "    if (event.source !== frame.contentWindow || m?.from !== 'galaxy-visualization') return;",
+        "    if (m.visualization_saved !== undefined) record.saved.push(m.visualization_saved);",
+        "    if (m.visualization_config !== undefined) record.configs.push(m.visualization_config);",
+        "  });",
+        "  window.__command = (given) => mount({ view: 'chat', ...given });",
+        `  mount(${JSON.stringify(config)});`,
+    ];
+}
+
 function hostPage(url) {
     const params = new URL(url, "http://127.0.0.1:8099").searchParams;
     const datasetId = params.get("dataset_id");
+    const exchangeId = params.get("exchange_id");
+    const question = params.get("question");
+    const asChat = params.get("view") === "chat";
     // A saved one opens on its latest revision's config, with its id for the owner (u1).
-    const saved = visualizations.get(params.get("visualization_id"));
+    const saved = asChat ? undefined : visualizations.get(params.get("visualization_id"));
     const incoming = {
         root: "http://127.0.0.1:8099/",
-        visualization_config: saved
-            ? saved.latest_revision.config
-            : datasetId
-              ? { dataset_id: datasetId }
-              : {},
+        visualization_config: asChat
+            ? {
+                  ...(datasetId ? { dataset_id: datasetId } : {}),
+                  view: "chat",
+                  ...(exchangeId ? { exchange_id: exchangeId } : {}),
+                  ...(question ? { question } : {}),
+              }
+            : saved
+              ? saved.latest_revision.config
+              : datasetId
+                ? { dataset_id: datasetId }
+                : {},
         visualization_plugin: pluginDict(),
         // With `incoming_id=0` the id is only in the page's own query.
         ...(saved && params.get("incoming_id") !== "0"
@@ -275,22 +318,26 @@ function hostPage(url) {
         const mount = [
             "(async () => {",
             "  const plugin = await (await fetch('/api/plugins/olit')).json();",
-            "  const doc = document.getElementById('galaxy_visualization').contentDocument;",
-            "  const app = doc.createElement('div');",
-            "  app.id = 'app';",
-            `  app.setAttribute('data-incoming', JSON.stringify({ ...${JSON.stringify(incoming)}, root: window.location.origin + '/', visualization_plugin: plugin }));`,
-            "  doc.body.appendChild(app);",
-            "  const attr = plugin.entry_point.attr;",
-            "  const script = doc.createElement('script');",
-            "  script.type = attr.type || 'module';",
-            "  script.src = `${plugin.href}/${attr.src}`;",
-            "  doc.body.appendChild(script);",
-            "  if (attr.css) {",
-            "    const link = doc.createElement('link');",
-            "    link.rel = 'stylesheet';",
-            "    link.href = `${plugin.href}/${attr.css}`;",
-            "    doc.head.appendChild(link);",
-            "  }",
+            "  const fill = (doc, config) => {",
+            "    const app = doc.createElement('div');",
+            "    app.id = 'app';",
+            `    app.setAttribute('data-incoming', JSON.stringify({ ...${JSON.stringify(incoming)}, visualization_config: config, root: window.location.origin + '/', visualization_plugin: plugin }));`,
+            "    doc.body.appendChild(app);",
+            "    const attr = plugin.entry_point.attr;",
+            "    const script = doc.createElement('script');",
+            "    script.type = attr.type || 'module';",
+            "    script.src = `${plugin.href}/${attr.src}`;",
+            "    doc.body.appendChild(script);",
+            "    if (attr.css) {",
+            "      const link = doc.createElement('link');",
+            "      link.rel = 'stylesheet';",
+            "      link.href = `${plugin.href}/${attr.css}`;",
+            "      doc.head.appendChild(link);",
+            "    }",
+            "  };",
+            ...(asChat
+                ? galaxyAi(incoming.visualization_config)
+                : [`  fill(document.getElementById('galaxy_visualization').contentDocument, ${JSON.stringify(incoming.visualization_config)});`]),
             "})();",
         ].join("\n");
         return [
@@ -324,9 +371,10 @@ const server = http.createServer(async (req, res) => {
         jobState = "queued";
         rateLimited = 0;
         calls = 0;
-        for (const list of [seen, cookies, prompts, visualizationWrites]) list.length = 0;
+        for (const list of [seen, cookies, prompts, visualizationWrites, chatWrites]) list.length = 0;
         pages.clear();
         visualizations.clear();
+        chats.clear();
         return json(res, 200, { reset: true });
     }
     if (url.startsWith("/__script")) {
@@ -359,12 +407,20 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.startsWith("/__pages")) return json(res, 200, { pages: [...pages.values()] });
     if (url.startsWith("/__visualizations")) return json(res, 200, { visualizations: [...visualizations.values()], writes: visualizationWrites });
+    if (url.startsWith("/__chats")) return json(res, 200, { chats: Object.fromEntries(chats), writes: chatWrites });
     // Hand a saved visualization to another owner, or to none, as sharing it with this user leaves it.
     if (url.startsWith("/__owner")) {
         const params = new URL(url, "http://x").searchParams;
         const found = visualizations.get(params.get("id"));
         if (found) found.user_id = params.get("user_id") || undefined;
         return json(res, 200, { owner: found?.user_id ?? null });
+    }
+    // Adds an older GalaxyAI chat: turns, no document.
+    if (url.startsWith("/__held")) {
+        const params = new URL(url, "http://x").searchParams;
+        const turns = JSON.parse(params.get("turns") || "[]");
+        chats.set(params.get("id"), { agent_type: "router", messages: turns, document: null });
+        return json(res, 200, { held: params.get("id") });
     }
     if (url.startsWith("/__public")) return json(res, 200, { public: true });
 
@@ -599,6 +655,37 @@ const server = http.createServer(async (req, res) => {
         if (body.content != null) Object.assign(found, { content: body.content, content_editor: body.content });
         found.update_time = now;
         return json(res, 200, found);
+    }
+    // Chat API: only the signed-in user's chats; only chats with a document can be replaced.
+    if (url.startsWith("/api/chat/exchange")) {
+        const [, , , , id, part] = url.split("?")[0].split("/");
+        if (req.method === "POST" && url.startsWith("/api/chat/exchanges")) {
+            const body = await readJson(req);
+            const created = `c${chats.size + 1}`;
+            chats.set(created, body);
+            chatWrites.push(`POST ${created}`);
+            return json(res, 200, { id: created });
+        }
+        const found = chats.get(id);
+        if (!found) return json(res, 404, { err_msg: "No accessible chat exchange found with the ID provided." });
+        if (req.method === "PUT") {
+            if (found.document === null) return json(res, 404, { err_msg: "This chat was not saved by a chat plugin." });
+            chats.set(id, await readJson(req));
+            chatWrites.push(`PUT ${id}`);
+            return json(res, 200, { id });
+        }
+        if (part === "document") return json(res, 200, { id, agent_type: found.agent_type, document: found.document });
+        if (part === "messages") {
+            const at = "2026-10-01T10:00:00";
+            return json(
+                res,
+                200,
+                found.messages.flatMap((turn) => [
+                    { role: "user", content: turn.query, timestamp: at },
+                    { role: "assistant", content: turn.response, agent_type: found.agent_type, timestamp: at },
+                ]),
+            );
+        }
     }
     if (url.startsWith("/api/visualizations")) {
         const id = url.split("?")[0].split("/")[3];

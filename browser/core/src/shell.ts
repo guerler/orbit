@@ -59,10 +59,16 @@ export interface LaunchContext {
   stop?: string;
   /** Said after the ready line. */
   greeting?: string;
+  /** Question to ask in a new conversation once the page is ready. */
+  ask?: string;
 }
 
 /** Where a conversation is saved, when the flavor saves them: absent, the page offers no Save. */
 export interface SessionStore {
+  /**
+   * Store name. Saves are keyed by name and id, since two stores can use the same id.
+   */
+  kind: string;
   save(document: SessionDocument, id?: string): Promise<string>;
   /** Whether the conversation as it stands is saved, for a host that asks before closing. */
   savedState(saved: boolean): void;
@@ -74,6 +80,11 @@ export interface SessionStore {
   keepHint?: string;
   /** Appended when the browser keeps nothing for this history, saying where saves reopen from. */
   reopenHint?: string;
+  /**
+   * Called with the shown saved session's id at launch and after a save, and with null for a new
+   * unsaved conversation.
+   */
+  active?(id: string | null): void;
 }
 
 export interface OrbitBrowserOptions {
@@ -171,6 +182,7 @@ export async function mountOrbitBrowser(
       mounted.abort();
       retryNotice.stop();
       started?.close();
+      chat.dispose();
       container.replaceChildren();
     },
   };
@@ -203,6 +215,15 @@ export async function mountOrbitBrowser(
     return handle;
   }
   let savedId = launch.saved?.id;
+  /** Key for a saved session in this browser: store name and id. */
+  const keptAs = (id: string) => `${sessions?.kind ?? ""}/${id}`;
+  /** Sets the shown saved session and reports changes to the store. */
+  function showing(id: string | undefined) {
+    const changed = id !== savedId;
+    savedId = id;
+    if (changed) sessions?.active?.(id ?? null);
+  }
+  sessions?.active?.(savedId ?? null);
 
   const usage = mountUsageBar(container);
   mountBuildStamp(container, {
@@ -341,7 +362,7 @@ export async function mountOrbitBrowser(
     pyodideURL: options.pyodideURL,
     config: workerConfig(),
     placement: { historyId: launch.historyId, datasetId: config.dataset_id },
-    ...(launch.saved ? { saved: launch.saved } : {}),
+    ...(launch.saved ? { saved: { ...launch.saved, id: keptAs(launch.saved.id) } } : {}),
   };
 
   const confirm = createConfirm({
@@ -353,6 +374,18 @@ export async function mountOrbitBrowser(
   /** Said once ready, when the user chose to continue a record whose conversation is gone. */
   let continuing: string | undefined;
 
+  /** Question from the host, asked once an empty conversation is shown. */
+  let pendingAsk = launch.ask;
+  function ask() {
+    if (pendingAsk && view.turns) {
+      startNew();
+    } else if (pendingAsk) {
+      el.input.value = pendingAsk;
+      pendingAsk = undefined;
+      submit();
+    }
+  }
+
   const agent = new AgentClient(
     (message) => {
       if (message.type === "events") {
@@ -360,6 +393,7 @@ export async function mountOrbitBrowser(
         if (afterReset && message.events.some((e) => e.type === "snapshot")) {
           info(afterReset);
           afterReset = undefined;
+          ask();
         }
         refreshControls();
       } else if (message.type === "settled") {
@@ -418,6 +452,7 @@ export async function mountOrbitBrowser(
         if (launch.greeting) {
           info(launch.greeting);
         }
+        ask();
       } else if (message.type === "recoverable") {
         // The browser kept nothing of a session here; the user says which, if any, this is.
         const line = info(
@@ -507,8 +542,9 @@ export async function mountOrbitBrowser(
     save.textContent = "Saving...";
     try {
       const document = await agent.export("");
-      savedId = await sessions!.save(document, savedId);
-      await agent.saved(savedId, document);
+      const id = await sessions!.save(document, savedId);
+      showing(id);
+      await agent.saved(keptAs(id), document);
       save.textContent = "Saved";
       sessions!.savedState(true);
       info(sessions!.savedNote);
@@ -535,6 +571,8 @@ export async function mountOrbitBrowser(
     el.input.style.height = "auto";
     // Busy from the click: the run starts once the worker has stored the message.
     setBusy(true);
+    // Mark the conversation unsaved as soon as a question is sent.
+    sessions?.savedState(false);
     chat.showThinking();
     agent.submit(text);
   }
@@ -549,18 +587,21 @@ export async function mountOrbitBrowser(
   el.abort.addEventListener("click", stop);
   // loom: "reset session -- fresh start, no --continue".
   el.reset.addEventListener("click", () => {
-    if (busy || !ready) {
-      return;
+    if (!busy && ready) {
+      startNew();
     }
-    // A new conversation; the old one stays, saved or not, and its record on Galaxy too.
-    savedId = undefined;
+  });
+
+  /** Starts a new conversation. The previous one is kept, saved or not. */
+  function startNew() {
+    showing(undefined);
     sessions?.savedState(true);
     el.artifactContent.innerHTML = "";
     afterReset =
       "Started a new conversation. The previous one can't be reopened here unless you saved it; " +
       "its notebook is unchanged.";
     agent.reset();
-  });
+  }
   el.input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
