@@ -29,12 +29,12 @@
     "@types/node": "^22.9.0",
     "galaxy-charts": "^0.1.18",
     "galaxy-charts-xml-parser": "^1.0.3",
-    "happy-dom": "^20.0.11",
+    "happy-dom": "^21.0.4",
     "typescript": "^5.9.3",
     "vega": "^6.4.0",
     "vega-embed": "^7.3.0",
     "vega-lite": "^6.4.3",
-    "vite": "^7.3.0",
-    "vitest": "^4.0.16"
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
   }
 }
