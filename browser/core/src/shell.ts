@@ -4,6 +4,9 @@
  */
 import "../../../app/src/renderer/styles.css";
 import "./shell.css";
+import orbitStyles from "../../../app/src/renderer/styles.css?inline";
+import shellStyles from "./shell.css?inline";
+import fontStyles from "../../../app/src/renderer/assets/fonts/fonts.css?inline";
 import { useChatMarkdown } from "./chat-markdown";
 import { settlePlanDrafts } from "./plan-drafts";
 
@@ -39,7 +42,7 @@ import {
   type ArtifactRenderers,
 } from "./artifacts";
 import { registerArtifactKinds, type ArtifactKind } from "./artifacts/kinds";
-import { mountLayout } from "./layout";
+import { hostOf, mountLayout } from "./layout";
 import { mountArtifactPane } from "./artifact-pane";
 import { mountUsageBar } from "./usage-bar";
 import { mountBuildStamp } from "./build-stamp";
@@ -111,16 +114,12 @@ export interface OrbitBrowserOptions {
   /** The same brand as the flavor's worker, whose stored state the page reads under it. */
   brand?: Brand;
   pool?: string;
+  signal?: AbortSignal;
 }
 
 /** The mounted page, as its host sees it. */
 export interface OrbitBrowserHandle {
-  /**
-   * End the agent's worker, detach what the shell attached to `container` and outside it, and
-   * empty it. Orbit's ChatPanel adds document and window listeners of its own (mouseup, mousedown,
-   * selectionchange, keydown, blur) that only the renderer could detach; they stay, but act on
-   * the detached panel.
-   */
+  /** End the agent's worker, detach what the shell attached to `container` and outside it, and empty it. */
   dispose(): void;
   /**
    * Ask `question` in a new conversation once the page is ready, after the questions asked before
@@ -157,11 +156,10 @@ function autosize(input: HTMLTextAreaElement): void {
 }
 
 /**
- * Mount the shell into `container`. It assumes it owns its document: one mount per page or
- * iframe. It puts the theme on the root element and the pane's state and drag cursor on body,
- * sizes the pane from the window's width, injects fixed element ids, configures the shared
- * `marked`, and its worker holds a per-origin tab lock. A host that needs it inside a larger page
- * mounts it in an iframe.
+ * Mount the shell into `container`, one mount per page or shadow root. It puts the theme on the
+ * root element and the pane's state and drag cursor on body, or on the shadow host, where it also
+ * adds its styles. It sizes the pane from the window's width, injects fixed element ids, configures
+ * the shared `marked`, and its worker holds a per-origin tab lock.
  */
 export async function mountOrbitBrowser(
   container: HTMLElement,
@@ -181,7 +179,18 @@ export async function mountOrbitBrowser(
     datasetId: options.datasetId,
     galaxyChatUrl: options.galaxyChatUrl,
   };
-  applyOrbitTheme("light", document.documentElement);
+  const host = hostOf(container);
+  const styles: HTMLStyleElement[] = [];
+  if (host) {
+    const inside = document.createElement("style");
+    inside.textContent = orbitStyles + shellStyles;
+    const fonts = document.createElement("style");
+    fonts.textContent = fontStyles;
+    (container.getRootNode() as ShadowRoot).append(inside);
+    document.head.append(fonts);
+    styles.push(inside, fonts);
+  }
+  applyOrbitTheme("light", host ?? document.documentElement);
 
   const el = mountLayout(container, { save: !!sessions });
   if (el.save && sessions?.label) el.save.title = sessions.label;
@@ -198,6 +207,7 @@ export async function mountOrbitBrowser(
       started?.close();
       chat.dispose();
       container.replaceChildren();
+      styles.forEach((style) => style.remove());
     },
     ask(question) {
       asks.push(question);
@@ -220,9 +230,16 @@ export async function mountOrbitBrowser(
     else if (notice) info(notice.text);
   };
 
+  options.signal?.addEventListener("abort", () => handle.dispose(), {
+    once: true,
+    signal: mounted.signal,
+  });
+  if (options.signal?.aborted) handle.dispose();
+
   // Ask for a provider/key before the worker starts.
   const offered = offeredProviders(!!options.galaxyChatUrl);
-  let creds = await ensureCredentials(container, brand, offered);
+  let creds = await ensureCredentials(container, brand, offered, mounted.signal);
+  if (mounted.signal.aborted) return handle;
   const config = buildConfig(target, creds);
   const rootPath = new URL(config.galaxy_root, document.baseURI).pathname;
   chat.setGalaxyServerUrl(absolute(config.galaxy_root));
@@ -230,6 +247,8 @@ export async function mountOrbitBrowser(
   // The page's own Galaxy requests take the transport the agent's do.
   const galaxy = connectGalaxy({ root: config.galaxy_root, credentials });
   const launch = await (options.launch ?? currentHistoryLaunch)(galaxy);
+  if (mounted.signal.aborted) return handle;
+  if (launch.ask) asks.push(launch.ask);
   if (launch.stop) {
     chat.addErrorMessage(launch.stop);
     el.input.disabled = true;
@@ -472,7 +491,7 @@ export async function mountOrbitBrowser(
   agent.open(opening);
 
   el.model.addEventListener("click", async () => {
-    const picked = await switchProvider(container, brand, offered);
+    const picked = await switchProvider(container, brand, offered, mounted.signal);
     if (picked) {
       const previous = { creds, model: { ...config } };
       creds = picked;

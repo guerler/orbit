@@ -85,7 +85,7 @@ if ! env -u LLM_PROVIDER -u LLM_ROOT -u LLM_MODEL -u LLM_KEY npm run build > /tm
     exit 1
 fi
 
-for d in credentials artifact-pane artifact-resize provider-switch galaxy-boot galaxy-frame saved-visualization saved-session chat-lifecycle unsaved-changes recovery reset python-isolation; do
+for d in credentials artifact-pane artifact-resize provider-switch galaxy-boot galaxy-frame saved-visualization saved-session chat-lifecycle element unsaved-changes recovery reset python-isolation; do
     ran="$ran $d"
     curl -sf -o /dev/null http://127.0.0.1:8099/__reset
     if node "olit/e2e/$d-drive.cjs" > "/tmp/olit-e2e-$d.log" 2>&1; then
@@ -113,6 +113,15 @@ for browser in firefox webkit; do
         echo "PASS  chat-lifecycle ($browser)"
     else
         failed "chat-lifecycle ($browser)" "/tmp/olit-e2e-chat-lifecycle-$browser.log"
+    fi
+done
+
+for browser in firefox webkit; do
+    curl -sf -o /dev/null http://127.0.0.1:8099/__reset
+    if BROWSER=$browser node olit/e2e/element-drive.cjs > "/tmp/olit-e2e-element-$browser.log" 2>&1; then
+        echo "PASS  element ($browser)"
+    else
+        failed "element ($browser)" "/tmp/olit-e2e-element-$browser.log"
     fi
 done
 

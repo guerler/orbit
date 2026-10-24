@@ -81,3 +81,14 @@
 #send-btn:disabled:hover {
   opacity: 0.5;
 }
+
+/* Fills the shadow host instead of the window. */
+:host #app {
+  width: 100%;
+  height: 100%;
+}
+
+:host {
+  display: block;
+  contain: layout;
+}

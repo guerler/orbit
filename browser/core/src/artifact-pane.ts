@@ -1,6 +1,7 @@
 /** The artifact pane: whether it is showing, the shortcut that toggles it, and the divider. */
 
 import { DEFAULT_BRAND, type Brand } from "./agent/brand";
+import { hostOf } from "./layout";
 
 const BREAKPOINT = 700;
 const MIN_CHAT_PERCENT = 25;
@@ -41,6 +42,8 @@ export function mountArtifactPane(
   const appMain = container.querySelector<HTMLElement>("#app-main")!;
   const button = container.querySelector<HTMLButtonElement>("#artifact-btn")!;
   const content = container.querySelector<HTMLElement>("#artifact-content")!;
+  // Holds the pane's state and the drag cursor: the shadow host, or body in the page itself.
+  const page = hostOf(container) ?? document.body;
 
   // What the user last chose, which a narrow window overrides without overwriting.
   let preferred = readPreference(collapsedKey);
@@ -49,9 +52,9 @@ export function mountArtifactPane(
   const empty = () => content.childElementCount === 0;
 
   const show = (collapsed: boolean) => {
-    const wasHidden = document.body.classList.contains("artifact-collapsed");
+    const wasHidden = page.classList.contains("artifact-collapsed");
     const hide = collapsed || empty();
-    document.body.classList.toggle("artifact-collapsed", hide);
+    page.classList.toggle("artifact-collapsed", hide);
     button.classList.toggle("hidden", empty());
     if (hide) {
       chatPane.style.flex = "";
@@ -66,9 +69,11 @@ export function mountArtifactPane(
     writePreference(collapsedKey, collapsed);
     show(collapsed);
   };
-  const collapsed = () => document.body.classList.contains("artifact-collapsed");
+  const collapsed = () => page.classList.contains("artifact-collapsed");
 
-  let narrow = window.innerWidth < BREAKPOINT;
+  // Use the container's width, or the window's before layout.
+  const width = () => container.clientWidth || window.innerWidth;
+  let narrow = width() < BREAKPOINT;
   show(narrow || preferred);
 
   // The pane reads its own contents rather than trusting a caller to announce them.
@@ -86,18 +91,18 @@ export function mountArtifactPane(
   resized.observe(content);
   signal?.addEventListener("abort", () => resized.disconnect());
 
-  window.addEventListener(
-    "resize",
-    () => {
-      const isNarrow = window.innerWidth < BREAKPOINT;
-      if (isNarrow === narrow) {
-        return;
-      }
+  const relayout = () => {
+    const isNarrow = width() < BREAKPOINT;
+    if (isNarrow !== narrow) {
       narrow = isNarrow;
       show(isNarrow ? true : preferred);
-    },
-    { signal },
-  );
+    }
+  };
+  window.addEventListener("resize", relayout, { signal });
+  // The container can be resized without a window resize.
+  const sized = new ResizeObserver(relayout);
+  sized.observe(container);
+  signal?.addEventListener("abort", () => sized.disconnect());
 
   button.addEventListener("click", () => set(!collapsed()));
   container.addEventListener(
@@ -119,8 +124,8 @@ export function mountArtifactPane(
     e.preventDefault();
     dragging = true;
     divider.classList.add("dragging");
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
+    page.style.cursor = "col-resize";
+    page.style.userSelect = "none";
   });
   document.addEventListener(
     "mousemove",
@@ -143,8 +148,8 @@ export function mountArtifactPane(
       }
       dragging = false;
       divider.classList.remove("dragging");
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
+      page.style.cursor = "";
+      page.style.userSelect = "";
     },
     { signal },
   );

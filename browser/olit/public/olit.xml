@@ -13,7 +13,7 @@
     <params>
         <param required="false">dataset_id</param>
     </params>
-    <entry_point entry_point_type="script" src="index.js" css="index.css" />
+    <entry_point entry_point_type="script" src="index.js" css="index.css" webcomponent="olit-plugin" />
     <specs>
         <ai_prompt><![CDATA[
 You are a co-scientist that orchestrates the Galaxy bioinformatics platform.

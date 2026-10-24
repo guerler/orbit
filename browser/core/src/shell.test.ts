@@ -81,6 +81,25 @@ describe("a flavor with no session store", () => {
   });
 });
 
+describe("the files the worker keeps sessions in", () => {
+  async function poolOf(pool?: string) {
+    const worker = fakeWorker();
+    await mountOrbitBrowser(container, {
+      ...base,
+      createWorker: () => worker as unknown as Worker,
+      launch: async () => ({ historyId: "h1" }),
+      ...(pool ? { pool } : {}),
+    });
+    return worker.sent[0]?.request;
+  }
+
+  it("opens the worker on the pool the flavor names, and on none otherwise", async () => {
+    expect(await poolOf("olit-chat")).toMatchObject({ pool: "olit-chat" });
+    container.replaceChildren();
+    expect(await poolOf()).not.toHaveProperty("pool");
+  });
+});
+
 describe("saved sessions in this browser", () => {
   const document = { olit_session: 1, session: {}, entries: [] } as any;
   /** Returns what the worker opens when launching save `id` from store `kind`. */
@@ -190,6 +209,187 @@ describe("dispose", () => {
       new KeyboardEvent("keydown", { key: "\\", ctrlKey: true, bubbles: true }),
     );
     expect(document.body.classList.contains("artifact-collapsed")).toBe(!before);
+  });
+});
+
+describe("a mount inside a shadow root", () => {
+  it("keeps its styles and state in the root and on the host, and takes them away on dispose", async () => {
+    const host = document.body.appendChild(document.createElement("div"));
+    const inside = host.attachShadow({ mode: "open" }).appendChild(document.createElement("div"));
+    const heads = document.head.childElementCount;
+    const handle = await mountOrbitBrowser(inside, {
+      ...base,
+      createWorker: () => fakeWorker() as unknown as Worker,
+      launch: async () => ({ historyId: "h1" }),
+    });
+    expect(host.shadowRoot!.querySelectorAll("style")).toHaveLength(1);
+    expect(document.head.childElementCount).toBe(heads + 1);
+    expect(host.getAttribute("data-theme")).toBe("light");
+    expect(host.classList.contains("artifact-collapsed")).toBe(true);
+    expect(document.body.classList.contains("artifact-collapsed")).toBe(false);
+    handle.dispose();
+    expect(host.shadowRoot!.querySelectorAll("style")).toHaveLength(0);
+    expect(document.head.childElementCount).toBe(heads);
+    host.remove();
+  });
+
+  it("adds no styles of its own to a page that links them", async () => {
+    const heads = document.head.childElementCount;
+    const handle = await mountOrbitBrowser(container, {
+      ...base,
+      createWorker: () => fakeWorker() as unknown as Worker,
+      launch: async () => ({ historyId: "h1" }),
+    });
+    expect(document.head.childElementCount).toBe(heads);
+    handle.dispose();
+  });
+});
+
+describe("a host that ends the page while it starts", () => {
+  it("starts no worker when it ends during the launch, and leaves nothing behind", async () => {
+    const ended = new AbortController();
+    const createWorker = vi.fn();
+    const heads = document.head.childElementCount;
+    let launched!: (context: { historyId: string }) => void;
+    const mounting = mountOrbitBrowser(container, {
+      ...base,
+      createWorker,
+      signal: ended.signal,
+      launch: () => new Promise((resolve) => (launched = resolve)),
+    });
+    await vi.waitFor(() => expect(launched).toBeDefined());
+    ended.abort();
+    expect(container.childElementCount).toBe(0);
+    expect(document.head.childElementCount).toBe(heads);
+    launched({ historyId: "h1" });
+    const handle = await mounting;
+    expect(createWorker).not.toHaveBeenCalled();
+    expect(container.childElementCount).toBe(0);
+    handle.dispose();
+  });
+
+  it("closes the provider picker and starts no worker when it ends there", async () => {
+    vi.stubGlobal("Option", function (text: string, value: string) {
+      return Object.assign(document.createElement("option"), { text, value });
+    });
+    saveCredentials({ provider: "openrouter" });
+    const ended = new AbortController();
+    const createWorker = vi.fn();
+    try {
+      const mounting = mountOrbitBrowser(container, {
+        ...base,
+        createWorker,
+        signal: ended.signal,
+        launch: async () => ({ historyId: "h1" }),
+      });
+      await vi.waitFor(() => expect(container.querySelector("#cred-overlay")).not.toBeNull());
+      ended.abort();
+      await mounting;
+      expect(createWorker).not.toHaveBeenCalled();
+      expect(container.childElementCount).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("ends a started page as dispose does", async () => {
+    const ended = new AbortController();
+    const worker = fakeWorker();
+    await mountOrbitBrowser(container, {
+      ...base,
+      createWorker: () => worker as unknown as Worker,
+      signal: ended.signal,
+      launch: async () => ({ historyId: "h1" }),
+    });
+    ended.abort();
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+    expect(container.childElementCount).toBe(0);
+  });
+
+  it("starts nothing when it has already ended", async () => {
+    const ended = new AbortController();
+    ended.abort();
+    const createWorker = vi.fn();
+    await mountOrbitBrowser(container, {
+      ...base,
+      createWorker,
+      signal: ended.signal,
+      launch: async () => ({ historyId: "h1" }),
+    });
+    expect(createWorker).not.toHaveBeenCalled();
+    expect(container.childElementCount).toBe(0);
+  });
+});
+
+describe("repeated mounts", () => {
+  /** Every listener added to the document or the window, kept until it is removed or aborted. */
+  function trackListeners() {
+    const live = new Set<string>();
+    const keys = new Map<EventListenerOrEventListenerObject, string>();
+    const restore: (() => void)[] = [];
+    for (const [name, target] of [
+      ["document", document],
+      ["window", window],
+    ] as const) {
+      const add = target.addEventListener.bind(target);
+      const remove = target.removeEventListener.bind(target);
+      const capture = (options?: boolean | AddEventListenerOptions) =>
+        typeof options === "boolean" ? options : !!options?.capture;
+      target.addEventListener = ((type: string, listener: any, options?: any) => {
+        const key = `${name} ${type} ${capture(options)} ${live.size}:${Math.random()}`;
+        keys.set(listener, key);
+        live.add(key);
+        options?.signal?.addEventListener("abort", () => live.delete(key));
+        add(type, listener, options);
+      }) as typeof target.addEventListener;
+      target.removeEventListener = ((type: string, listener: any, options?: any) => {
+        const key = keys.get(listener);
+        if (key) live.delete(key);
+        remove(type, listener, options);
+      }) as typeof target.removeEventListener;
+      restore.push(() => {
+        target.addEventListener = add;
+        target.removeEventListener = remove;
+      });
+    }
+    return { live, restore: () => restore.forEach((r) => r()) };
+  }
+
+  it("leaves no listener, button, modal or worker behind after each dispose", async () => {
+    // happy-dom has no Option constructor, which the provider picker uses.
+    vi.stubGlobal("Option", function (text: string, value: string) {
+      return Object.assign(document.createElement("option"), { text, value });
+    });
+    const tracked = trackListeners();
+    const workers: ReturnType<typeof fakeWorker>[] = [];
+    const buttons = document.querySelectorAll(".chat-copy-btn").length;
+    try {
+      for (let cycle = 0; cycle < 3; cycle++) {
+        const worker = fakeWorker();
+        workers.push(worker);
+        const handle = await mountOrbitBrowser(container, {
+          ...base,
+          createWorker: () => worker as unknown as Worker,
+          launch: async () => ({ historyId: "h1" }),
+        });
+        worker.say({ type: "ready" } as WorkerMessage);
+        expect(tracked.live.size).toBeGreaterThan(0);
+        if (cycle === 2) {
+          // The provider picker is open when the page goes away.
+          container.querySelector<HTMLButtonElement>("#model-btn")!.click();
+          await new Promise((resolve) => setTimeout(resolve));
+          expect(container.querySelector("#cred-overlay:not(.hidden)")).not.toBeNull();
+        }
+        handle.dispose();
+        expect([...tracked.live]).toEqual([]);
+        expect(document.querySelectorAll(".chat-copy-btn")).toHaveLength(buttons);
+        expect(container.childElementCount).toBe(0);
+      }
+      expect(workers.map((w) => w.terminate.mock.calls.length)).toEqual([1, 1, 1]);
+    } finally {
+      tracked.restore();
+      vi.unstubAllGlobals();
+    }
   });
 });
 

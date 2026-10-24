@@ -51,21 +51,27 @@ export class ChatPanel {
   // cards instead of all collapsing to one block pushed at message end.
   private pendingSegment = "";
   private copyBtn: HTMLElement;
+  /** Aborts the copy button's listeners on the document and the window. */
+  private readonly attached = new AbortController();
 
   constructor(container: HTMLElement) {
     this.container = container;
     this.copyBtn = this.initCopyButton();
 
-    this.container.addEventListener("copy", (e) => {
-      const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0) return;
-      const frag = sel.getRangeAt(0).cloneContents();
-      const tmp = document.createElement("div");
-      tmp.appendChild(frag);
-      const md = fragmentToMarkdown(tmp);
-      e.preventDefault();
-      e.clipboardData!.setData("text/plain", md);
-    });
+    document.addEventListener(
+      "copy",
+      (e) => {
+        const selected = this.readSelection();
+        if (!selected || !this.container.contains(selected.range.startContainer)) return;
+        const frag = selected.range.cloneContents();
+        const tmp = document.createElement("div");
+        tmp.appendChild(frag);
+        const md = fragmentToMarkdown(tmp);
+        e.preventDefault();
+        e.clipboardData!.setData("text/plain", md);
+      },
+      { signal: this.attached.signal },
+    );
 
     this.container.addEventListener("scroll", () => {
       const { scrollTop, scrollHeight, clientHeight } = this.container;
@@ -478,13 +484,51 @@ export class ChatPanel {
     return historyToMarkdown(this.history);
   }
 
+  /** Removes the copy button and its listeners, which live outside the container. */
+  dispose(): void {
+    this.attached.abort();
+    this.copyBtn.remove();
+  }
+
+  /** Returns the selected range and its ends, read inside the panel's shadow root when it has one. */
+  private readSelection(): { range: Range; signature: SelectionSignature } | null {
+    const sel = window.getSelection();
+    const root = this.container.getRootNode();
+    let selected: { range: Range; signature: SelectionSignature } | null = null;
+    if (sel && root instanceof ShadowRoot && sel.getComposedRanges && sel.rangeCount > 0) {
+      const [composed] = sel.getComposedRanges({ shadowRoots: [root] });
+      const range = document.createRange();
+      range.setStart(composed.startContainer, composed.startOffset);
+      range.setEnd(composed.endContainer, composed.endOffset);
+      const signature = {
+        anchorNode: range.startContainer,
+        anchorOffset: range.startOffset,
+        focusNode: range.endContainer,
+        focusOffset: range.endOffset,
+      };
+      selected = range.collapsed ? null : { range, signature };
+    } else if (sel && !sel.isCollapsed && sel.rangeCount > 0) {
+      const signature = {
+        anchorNode: sel.anchorNode,
+        anchorOffset: sel.anchorOffset,
+        focusNode: sel.focusNode,
+        focusOffset: sel.focusOffset,
+      };
+      selected = { range: sel.getRangeAt(0), signature };
+    }
+    return selected;
+  }
+
   private initCopyButton(): HTMLElement {
+    const { signal } = this.attached;
     const COPY_LABEL = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy`;
     const btn = document.createElement("button");
     btn.className = "chat-copy-btn";
     btn.hidden = true;
     btn.innerHTML = COPY_LABEL;
-    document.body.appendChild(btn);
+    // Appends the button to the panel's shadow root when it has one, so its styles apply there.
+    const root = this.container.getRootNode();
+    (root instanceof ShadowRoot ? root : document.body).appendChild(btn);
 
     // selectionchange fires while a mousedown is still in progress and the old
     // selection is still live, which would immediately re-show the button we
@@ -502,42 +546,48 @@ export class ChatPanel {
     let selectionEpoch = 0;
 
     const currentSignature = (): SelectionSignature | null => {
-      const sel = window.getSelection();
-      if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
-      return {
-        anchorNode: sel.anchorNode,
-        anchorOffset: sel.anchorOffset,
-        focusNode: sel.focusNode,
-        focusOffset: sel.focusOffset,
-      };
+      return this.readSelection()?.signature ?? null;
     };
 
     btn.addEventListener("mousedown", (e) => e.preventDefault()); // keep selection alive on button click
 
-    document.addEventListener("mousedown", (e) => {
-      // contains() so clicking the button's inner <svg> (a child) still counts
-      // as the button -- otherwise the icon hit hides it before the copy fires.
-      if (!btn.contains(e.target as Node)) {
+    document.addEventListener(
+      "mousedown",
+      (e) => {
+        // composedPath() so clicking the button's inner <svg> (a child) still counts
+        // as the button -- otherwise the icon hit hides it before the copy fires --
+        // also when a shadow root retargets the event to its host.
+        if (!e.composedPath().includes(btn)) {
+          btn.hidden = true;
+          mouseIsDown = true;
+          dismissal.suppress(currentSignature());
+        }
+      },
+      { signal },
+    );
+    document.addEventListener(
+      "mouseup",
+      () => {
+        mouseIsDown = false;
+        updateBtn();
+      },
+      { signal },
+    );
+    window.addEventListener(
+      "blur",
+      () => {
         btn.hidden = true;
-        mouseIsDown = true;
-        dismissal.suppress(currentSignature());
-      }
-    });
-    document.addEventListener("mouseup", () => {
-      mouseIsDown = false;
-      updateBtn();
-    });
-    window.addEventListener("blur", () => {
-      btn.hidden = true;
-    });
+      },
+      { signal },
+    );
 
     btn.addEventListener("click", () => {
-      const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0) {
+      const selected = this.readSelection();
+      if (!selected) {
         btn.hidden = true;
         return;
       }
-      const frag = sel.getRangeAt(0).cloneContents();
+      const frag = selected.range.cloneContents();
       const tmp = document.createElement("div");
       tmp.appendChild(frag);
       const md = fragmentToMarkdown(tmp);
@@ -585,13 +635,17 @@ export class ChatPanel {
 
     // Keyboard selection (Shift+arrow, Ctrl+A, etc.) — selectionchange is safe
     // here because there's no mousedown race.
-    document.addEventListener("selectionchange", () => {
-      const sig = currentSignature();
-      if (sig === null) selectionEpoch++;
-      dismissal.noteSelectionChange(sig);
-      if (mouseIsDown) return;
-      updateBtn();
-    });
+    document.addEventListener(
+      "selectionchange",
+      () => {
+        const sig = currentSignature();
+        if (sig === null) selectionEpoch++;
+        dismissal.noteSelectionChange(sig);
+        if (mouseIsDown) return;
+        updateBtn();
+      },
+      { signal },
+    );
 
     // The button is position:fixed at the selection's viewport coords, but the
     // chat re-renders and autoscrolls during streaming. Without re-validating on
@@ -603,16 +657,20 @@ export class ChatPanel {
     // A guaranteed dismiss: Escape clears the selection and hides the button.
     // Scoped to when the button is showing so it never disturbs selections
     // elsewhere (e.g. in an input).
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && !btn.hidden) {
-        btn.hidden = true;
-        window.getSelection()?.removeAllRanges();
-      }
-    });
+    document.addEventListener(
+      "keydown",
+      (e) => {
+        if (e.key === "Escape" && !btn.hidden) {
+          btn.hidden = true;
+          window.getSelection()?.removeAllRanges();
+        }
+      },
+      { signal },
+    );
 
     const updateBtn = () => {
-      const sel = window.getSelection();
-      if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+      const selected = this.readSelection();
+      if (!selected) {
         btn.hidden = true;
         return;
       }
@@ -621,12 +679,12 @@ export class ChatPanel {
         btn.hidden = true;
         return;
       }
-      const range = sel.getRangeAt(0);
+      const range = selected.range;
       const rect = range.getBoundingClientRect();
       const crect = this.container.getBoundingClientRect();
       const placement = computeCopyButtonPlacement({
-        isCollapsed: sel.isCollapsed,
-        rangeCount: sel.rangeCount,
+        isCollapsed: false,
+        rangeCount: 1,
         inContainer: this.container.contains(range.commonAncestorContainer),
         rect: {
           top: rect.top,
