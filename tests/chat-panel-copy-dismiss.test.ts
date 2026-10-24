@@ -356,3 +356,20 @@ describe("copy button stylesheet (#534)", () => {
     }
   });
 });
+
+describe("a disposed panel", () => {
+  it("removes its copy button and stops listening to document events", () => {
+    const container = document.createElement("div");
+    container.getBoundingClientRect = () =>
+      ({ top: 0, bottom: 700, left: 0, right: 900 }) as DOMRect;
+    document.body.appendChild(container);
+    const panel = new ChatPanel(container);
+    const btn = document.querySelector<HTMLButtonElement>(".chat-copy-btn")!;
+    panel.dispose();
+    expect(document.querySelector(".chat-copy-btn")).toBeNull();
+
+    currentSelection = makeSelection(container, "after the panel went");
+    selectionchange();
+    expect(btn.hidden).toBe(true);
+  });
+});
