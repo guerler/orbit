@@ -49,15 +49,15 @@ async function command(page, config) {
 (async () => {
     const browser = await playwright[BROWSER].launch();
 
-    // Without the chat view, Olit runs as a visualization.
+    // A plain frame runs as a visualization and saves to Galaxy's visualizations.
     const plain = await machine(browser, `${HOST}?dataset_id=dlife&frame=1`);
     const plainReady = await ready(plain.frame);
-    const plainText = await plain.frame.locator("body").innerText();
-    check("without the chat view, Olit runs as a visualization",
-        plainReady && !/GalaxyAI/.test(plainText), plainText.replace(/\s+/g, " ").slice(0, 200));
+    const plainSave = await plain.frame.locator("#save-btn").getAttribute("title");
+    check("a plain frame runs as a visualization",
+        plainReady && plainSave === "Save this conversation to Galaxy to reopen it on any device", plainSave);
 
     await fetch(`${STUB}/__script?name=plain`);
-    // An older GalaxyAI chat, to open over unsaved changes.
+    // A chat saved without a session, to open over unsaved changes.
     const turns = [{ query: "Which aligner?", response: "HISAT2." }];
     await fetch(`${STUB}/__held?id=g1&turns=${encodeURIComponent(JSON.stringify(turns))}`);
     const { page, frame } = await machine(browser, `${HOST}?frame=1&view=chat`);
@@ -65,7 +65,7 @@ async function command(page, config) {
     const saved = async () => (await hosted(page)).saved;
     const shown = async () => (await hosted(page)).configs.at(-1);
     check("reports saved once on mount", JSON.stringify(await saved()) === "[true]", JSON.stringify(await saved()));
-    check("reports no chat id before saving",
+    check("reports the chat view before saving",
         await until(async () => JSON.stringify(await shown()) === JSON.stringify({ view: "chat" })), JSON.stringify(await shown()));
     await frame.locator("#input").fill("remember this");
     await frame.locator("#send-btn").click();
@@ -75,7 +75,7 @@ async function command(page, config) {
     check("saving reports the new chat id", await until(async () => typeof (await shown())?.exchange_id === "string"), JSON.stringify(await shown()));
     const savedId = (await shown()).exchange_id;
     check("saving reports saved", await until(async () => (await saved()).at(-1) === true), JSON.stringify(await saved()));
-    check("its messages do not remount it", (await hosted(page)).mounts.length === 1, JSON.stringify((await hosted(page)).mounts));
+    check("reporting keeps the same mount", (await hosted(page)).mounts.length === 1, JSON.stringify((await hosted(page)).mounts));
 
     // Change the chat, then open another one; the new one starts saved.
     await frame.locator("#input").fill("one more thing");
@@ -92,7 +92,7 @@ async function command(page, config) {
 
     // WebKit reports the wrong sender for messages sent from a click.
     await page.frameLocator("#galaxy_visualization").locator("#reset-btn").click();
-    check("clicking New reports no chat id and saved",
+    check("clicking New reports the chat view and saved",
         await until(async () => (await shown())?.exchange_id === undefined && (await saved()).at(-1) === true),
         JSON.stringify(await hosted(page)));
     check("only commands remount it", (await hosted(page)).mounts.length === 3, JSON.stringify((await hosted(page)).mounts));
@@ -113,7 +113,7 @@ async function command(page, config) {
         check("the interrupted question is kept", back);
         await new Promise((r) => setTimeout(r, 3000));
         const text = await current().locator("body").innerText();
-        check("the interrupted answer is not shown or resumed",
+        check("the interrupted turn ends at the question",
             !/the abandoned answer/.test(text) && (await calls()) === 1, `calls ${await calls()}`);
         const idle = await until(() => current().locator("#send-btn").evaluate((b) => !b.classList.contains("hidden")), 30000);
         check("Send is available", idle, idle ? "" : (await current().locator("body").innerText()).replace(/\s+/g, " ").slice(-300));

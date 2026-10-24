@@ -2,7 +2,7 @@
  * Saves conversations as Galaxy chats: the chat's document holds the whole session, and its turns
  * are what Galaxy lists.
  *
- * Saving is explicit, as it was for GalaxyAI's own chats.
+ * Saving is explicit.
  */
 
 import {
@@ -26,7 +26,7 @@ export interface Turn {
   response: string;
 }
 
-/** A message from an older GalaxyAI chat, as `api/chat/exchange/{id}/messages` returns it. */
+/** A message of a chat saved without a session, as `api/chat/exchange/{id}/messages` returns it. */
 export interface HeldMessage {
   role: "user" | "assistant";
   content: string;
@@ -74,8 +74,8 @@ const NO_USAGE = {
 };
 
 /**
- * Converts an older GalaxyAI chat into a session Olit can continue. Galaxy stored only the
- * questions and answers.
+ * Converts a chat saved without a session into one Olit can continue, from its questions and
+ * answers.
  */
 export function heldSession(messages: readonly HeldMessage[], now = new Date()): SessionDocument {
   const when = (message: HeldMessage) => Date.parse(message.timestamp ?? "") || now.getTime();
@@ -117,18 +117,17 @@ export function heldSession(messages: readonly HeldMessage[], now = new Date()):
   };
 }
 
-/** Shown when opening an older GalaxyAI chat. */
+/** Shown when a chat saved without a session opens. */
 export const HELD_NOTE =
-  "This conversation was held by GalaxyAI before Olit: its questions and answers are here, " +
-  "the steps behind them are not. Saving keeps it as a new chat and leaves the original.";
+  "This chat has its questions and answers only. Saving creates a new chat and keeps this one.";
 
 export const chats: Store = {
   kind: "chat",
   wording: {
-    savedNote: "Saved. Open it from GalaxyAI's chats on any device.",
-    label: "Save this conversation to GalaxyAI's chats to reopen it on any device",
-    keepHint: "Save it to GalaxyAI's chats to keep it.",
-    reopenHint: "To reopen a saved conversation, open it from GalaxyAI's chats.",
+    savedNote: "Saved. Open it from your chats on any device.",
+    label: "Save this conversation to reopen it on any device",
+    keepHint: "Save it to keep it.",
+    reopenHint: "To reopen a saved conversation, open it from your chats.",
   },
   connect(galaxy: Galaxy): Saves {
     async function create(payload: object): Promise<string> {
@@ -158,8 +157,7 @@ export const chats: Store = {
         const payload = { agent_type: AGENT_TYPE, messages, document };
         let saved: string;
         if (id) {
-          // Galaxy only replaces chats Olit saved. If the chat is gone or came from GalaxyAI,
-          // save a new one.
+          // Galaxy replaces only chats saved with a session; any other is saved as a new chat.
           saved = await galaxy.put(`api/chat/exchange/${segment(id)}`, payload).then(
             () => id,
             (e) => {

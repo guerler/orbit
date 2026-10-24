@@ -1,5 +1,5 @@
 // Tests reopening a saved chat on another machine. Saving it again must replace that chat.
-// Also covers older GalaxyAI chats, `question`, switching chats without a page reload, and the
+// Also covers chats saved without a session, `question`, switching chats without a page reload, and the
 // reported chat id.
 const playwright = require("playwright");
 const storedProvider = require("./stored-provider.cjs");
@@ -95,17 +95,17 @@ async function save(frame) {
         JSON.stringify(after.writes.slice(-2)),
     );
 
-    // An older GalaxyAI chat: turns, no session.
+    // A chat saved without a session: turns only.
     const turns = [{ query: "Which aligner for RNA-seq?", response: "HISAT2 or STAR." }];
     await fetch(`${STUB}/__held?id=g1&turns=${encodeURIComponent(JSON.stringify(turns))}`);
     const held = await machine(browser, `${HOST}?exchange_id=g1&frame=1&view=chat`);
     const heldText = await held.frame.locator("body").innerText();
     check(
-        "an older GalaxyAI chat opens from its questions and answers",
+        "a chat without a session opens from its questions and answers",
         held.ready && heldText.includes("Which aligner for RNA-seq?") && heldText.includes("HISAT2 or STAR."),
         heldText.replace(/\s+/g, " ").slice(0, 300),
     );
-    check("it shows the note for older chats", /held by GalaxyAI before Olit/.test(heldText));
+    check("it says that saving creates a new chat", /Saving creates a new chat and keeps this one/.test(heldText));
     await say(held.frame, "and for counting?");
     const continued = await save(held.frame);
     const added = continued.writes.at(-1);
@@ -137,7 +137,7 @@ async function save(frame) {
         missing.ready && /Could not open saved conversation gone/.test(missingText),
         missingText.replace(/\s+/g, " ").slice(0, 300),
     );
-    check("it reports no chat id", (await shown(missing.page)) === null, JSON.stringify((await hosted(missing.page)).configs));
+    check("it reports the chat view only", (await shown(missing.page)) === null, JSON.stringify((await hosted(missing.page)).configs));
 
     // A question from Galaxy, asked in a new conversation.
     const asked = await machine(browser, `${HOST}?question=${encodeURIComponent("count my datasets please")}&frame=1&view=chat`);
