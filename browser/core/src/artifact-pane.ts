@@ -68,7 +68,9 @@ export function mountArtifactPane(
   };
   const collapsed = () => document.body.classList.contains("artifact-collapsed");
 
-  let narrow = window.innerWidth < BREAKPOINT;
+  // Use the container's width, or the window's before layout.
+  const width = () => container.clientWidth || window.innerWidth;
+  let narrow = width() < BREAKPOINT;
   show(narrow || preferred);
 
   // The pane reads its own contents rather than trusting a caller to announce them.
@@ -86,18 +88,18 @@ export function mountArtifactPane(
   resized.observe(content);
   signal?.addEventListener("abort", () => resized.disconnect());
 
-  window.addEventListener(
-    "resize",
-    () => {
-      const isNarrow = window.innerWidth < BREAKPOINT;
-      if (isNarrow === narrow) {
-        return;
-      }
+  const relayout = () => {
+    const isNarrow = width() < BREAKPOINT;
+    if (isNarrow !== narrow) {
       narrow = isNarrow;
       show(isNarrow ? true : preferred);
-    },
-    { signal },
-  );
+    }
+  };
+  window.addEventListener("resize", relayout, { signal });
+  // The container can be resized without a window resize.
+  const sized = new ResizeObserver(relayout);
+  sized.observe(container);
+  signal?.addEventListener("abort", () => sized.disconnect());
 
   button.addEventListener("click", () => set(!collapsed()));
   container.addEventListener(
