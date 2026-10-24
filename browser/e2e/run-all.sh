@@ -4,12 +4,15 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 
 # A server left running from an earlier run answers first, and the drivers then grade it
-# instead of this build. /dev/tcp rather than lsof, which CI images do not all carry.
+# instead of this build. /dev/tcp rather than lsof, which CI images do not all carry. Both
+# stacks: Vite listens on localhost, which can be IPv6 only.
 for port in 8099 5173 5174; do
-    if (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
-        echo "e2e: port $port is already in use; stop that process first" >&2
-        exit 1
-    fi
+    for host in 127.0.0.1 ::1; do
+        if (exec 3<>"/dev/tcp/$host/$port") 2>/dev/null; then
+            echo "e2e: port $port is already in use on $host; stop that process first" >&2
+            exit 1
+        fi
+    done
 done
 
 fail=0
@@ -20,29 +23,33 @@ failed() {
     tail -n 25 "$2" | sed 's/^/      /'
     fail=1
 }
-# Wait for a server, or stop: drivers run against a server that never came up only fail obscurely.
+# Wait for the server started as `$4`, or stop: drivers run against a server that never came up
+# only fail obscurely, and one that exited leaves its port to whatever else answers there.
 await() {
-    for _ in $(seq "$2"); do curl -sf -o /dev/null "$1" && return 0; sleep 1; done
-    echo "e2e: $1 did not answer within $2s (see $3)" >&2
+    for _ in $(seq "$2"); do
+        kill -0 "$4" 2>/dev/null || break
+        curl -sf -o /dev/null "$1" && return 0
+        sleep 1
+    done
+    echo "e2e: $1 did not answer from the server this run started (see $3)" >&2
     exit 1
 }
-# `npm run dev` outlives the kill: npm is the recorded pid, vite is its child, and the
-# orphan then answers the next run's drivers. Take the servers by name as well.
+# Each server runs in its own process group, so stopping the group takes npm and the vite it
+# started together; killing npm alone leaves vite answering the next run.
+set -m
 cleanup() {
-    for p in "${pids[@]:-}"; do kill "$p" 2>/dev/null || true; done
-    pkill -f "e2e/stub.cjs" 2>/dev/null || true
-    pkill -f "$PWD/node_modules/.bin/vite" 2>/dev/null || true
+    for p in "${pids[@]:-}"; do kill -- -"$p" 2>/dev/null || true; done
 }
 trap cleanup EXIT
 
 node e2e/stub.cjs > /tmp/olit-e2e-stub.log 2>&1 & pids+=($!)
-await http://127.0.0.1:8099/__seen 10 /tmp/olit-e2e-stub.log
+await http://127.0.0.1:8099/__seen 10 /tmp/olit-e2e-stub.log "$!"
 
 GALAXY_ROOT=http://127.0.0.1:8099 LLM_PROVIDER=ollama LLM_ROOT=http://127.0.0.1:8099 \
   LLM_PATH=/v1 LLM_KEY=stub LLM_MODEL=stub-model \
   LLM_CONTEXT_WINDOW=64000 LLM_KEEP_RECENT_TOKENS=50 \
-  npm run dev > /tmp/olit-e2e-dev.log 2>&1 & pids+=($!)
-await http://localhost:5173/ 40 /tmp/olit-e2e-dev.log
+  npm run dev -w @galaxyproject/olit -- --port 5173 --strictPort > /tmp/olit-e2e-dev.log 2>&1 & pids+=($!)
+await http://localhost:5173/ 40 /tmp/olit-e2e-dev.log "$!"
 
 ran=""
 for d in confirm session reload tabs unsaved-visualization approval-gate ratelimit visualization-artifact artifact-survives-switch artifact-restore-newest run-python; do
@@ -61,7 +68,7 @@ GALAXY_ROOT=http://127.0.0.1:8099 LLM_PROVIDER=ollama LLM_ROOT=http://127.0.0.1:
   LLM_PATH=/v1 LLM_KEY=stub LLM_MODEL=stub-model \
   LLM_CONTEXT_WINDOW=64000 LLM_KEEP_RECENT_TOKENS=50 \
   npm run dev -w @galaxyproject/orbit-browser-bare > /tmp/olit-e2e-bare-dev.log 2>&1 & pids+=($!)
-await http://localhost:5174/ 120 /tmp/olit-e2e-bare-dev.log
+await http://localhost:5174/ 120 /tmp/olit-e2e-bare-dev.log "$!"
 ran="$ran bare"
 curl -sf -o /dev/null http://127.0.0.1:8099/__reset
 if node e2e/bare-drive.cjs > /tmp/olit-e2e-bare.log 2>&1; then
