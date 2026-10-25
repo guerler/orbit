@@ -33,8 +33,9 @@ export function chatCommand(data: unknown): ChatCommand | null {
 
 /**
  * Connects to Galaxy AI on the page that embeds Olit, at the origin of Galaxy's `root`. Says
- * `ready` to that page and takes the port it answers with; commands and reports then go only over
- * that port. Reports made before then wait for it.
+ * `ready` to that page and takes the first port it answers with; commands and reports then go only
+ * over that port. Reports made before then wait for it. Every engine names the parent as the
+ * source of what the parent posts here, so `connect` is checked by its source and its origin.
  */
 export function connectChatHost(root: string, onCommand: (command: ChatCommand) => void) {
   const origin = new URL(root, document.baseURI).origin;
