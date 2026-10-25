@@ -13,8 +13,6 @@ import type { OlitIncoming } from "./incoming";
 import { resolveLaunch, summarize } from "./seed-dataset";
 import { NotYours, type Opened, type Saves, type Store } from "./stores/store";
 
-export const PLUGIN_NAME = "olit";
-
 export const isDev = () => (import.meta as any).env.DEV;
 
 /** What to open: a saved conversation, or a new one on a dataset. */
@@ -35,13 +33,13 @@ export function shellOptions(
   request: LaunchRequest,
   report: Report,
 ): OrbitBrowserOptions {
-  const base = isDev() ? "" : `static/plugins/visualizations/${PLUGIN_NAME}/`;
+  const base = isDev() ? "" : `static/plugins/visualizations/${incoming.plugin}/`;
   // Set at launch, which always runs before the first save.
   let saves: Saves | undefined;
   return {
     galaxyRoot: incoming.root,
     datasetId: incoming.datasetId,
-    galaxyChatUrl: `${incoming.root}api/plugins/${PLUGIN_NAME}`,
+    galaxyChatUrl: `${incoming.root}api/plugins/${incoming.plugin}`,
     pyodideURL: new URL(`${incoming.root}${base}static/pyodide`, document.baseURI).href,
     createWorker: () => new Worker(new URL("./worker.ts", import.meta.url), { type: "module" }),
     ...OLIT_ARTIFACTS,

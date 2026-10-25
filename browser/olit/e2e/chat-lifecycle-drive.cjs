@@ -1,7 +1,9 @@
-// Tests Olit in chat mode on the stub's host page, which mounts it like Galaxy does.
-// Covers: saved-state and chat-id messages, remounting per command, interrupting an answer, and
-// artifacts in the chat's own pane. BROWSER=firefox or webkit runs it there; the mid-answer part
-// is skipped in WebKit, which keeps no conversations in the browser.
+// Tests Olit as Galaxy AI's chat on the stub's host page, which hosts it as Galaxy does: one frame,
+// a port handed in once it says ready, and commands over that port in order.
+// Covers: its reports, asking without a reload or a new worker, opening a chat without a reload,
+// commands in order, a question during an answer, refusing commands from another frame, and
+// artifacts in the chat's own pane. BROWSER=firefox or webkit runs it there; the mid-answer part is
+// skipped in WebKit, which keeps no conversations in the browser.
 const playwright = require("playwright");
 const storedProvider = require("./stored-provider.cjs");
 const BROWSER = process.env.BROWSER || "chromium";
@@ -14,7 +16,6 @@ function check(name, ok, detail) {
     console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  — " + detail : ""}`);
 }
 
-const hosted = (page) => page.evaluate(() => window.__galaxyAi);
 const calls = async () => (await (await fetch(`${STUB}/__seen`)).json()).calls;
 const until = async (test, ms = 30000) => {
     const end = Date.now() + ms;
@@ -35,16 +36,10 @@ async function machine(browser, url) {
 
 const ready = (frame) =>
     frame
-        .locator("text=/Ready\./")
+        .locator("text=/Ready\\./")
         .first()
         .waitFor({ timeout: 120000 })
         .then(() => true, () => false);
-
-/** Sends a command and waits for the remounted plugin. */
-async function command(page, config) {
-    await page.evaluate((given) => window.__command(given), config);
-    return ready(page.frameLocator("#galaxy_visualization"));
-}
 
 (async () => {
     const browser = await playwright[BROWSER].launch();
@@ -57,67 +52,96 @@ async function command(page, config) {
         plainReady && plainSave === "Save this conversation to Galaxy to reopen it on any device", plainSave);
 
     await fetch(`${STUB}/__script?name=plain`);
-    // A chat saved without a session, to open over unsaved changes.
+    // A chat saved without a session, to open after asking.
     const turns = [{ query: "Which aligner?", response: "HISAT2." }];
     await fetch(`${STUB}/__held?id=g1&turns=${encodeURIComponent(JSON.stringify(turns))}`);
     const { page, frame } = await machine(browser, `${HOST}?frame=1&view=chat`);
+    const host = () => page.evaluate(() => {
+        const view = document.getElementById("galaxy_visualization").contentWindow;
+        return { ...window.__galaxyAi, page: view.__page };
+    });
+    const reports = async (type) => (await host()).reports.filter((r) => r.type === type);
+    const last = async (type) => (await reports(type)).at(-1);
+    const command = (given) => page.evaluate((c) => window.__command(c), given);
+    const text = () => frame.locator("#messages").innerText();
+
     check("the chat boots", await ready(frame));
-    const saved = async () => (await hosted(page)).saved;
-    const shown = async () => (await hosted(page)).configs.at(-1);
-    check("reports saved once on mount", JSON.stringify(await saved()) === "[true]", JSON.stringify(await saved()));
-    check("reports the chat view before saving",
-        await until(async () => JSON.stringify(await shown()) === JSON.stringify({ view: "chat" })), JSON.stringify(await shown()));
-    await frame.locator("#input").fill("remember this");
-    await frame.locator("#send-btn").click();
-    check("asking a question reports unsaved", await until(async () => (await saved()).at(-1) === false), JSON.stringify(await saved()));
-    await frame.locator("text=Noted.").last().waitFor({ timeout: 60000 });
+    check("it says ready and is handed a port", (await reports("ready")).length === 1, JSON.stringify((await host()).reports));
+    check("it reports a new chat, unchanged",
+        await until(async () => (await last("active"))?.exchange_id === null && (await last("unsaved"))?.value === false),
+        JSON.stringify((await host()).reports));
+    check("it sends no Charts messages as the chat", (await host()).charts.length === 0, JSON.stringify((await host()).charts));
+
+    await command({ type: "ask", question: "remember this" });
+    check("an asked question is answered",
+        await until(async () => /remember this[\s\S]*Noted\./.test(await text()), 60000), (await text()).slice(-200));
+    check("asking reports unsaved", (await last("unsaved"))?.value === true, JSON.stringify(await reports("unsaved")));
+    check("asking keeps the page and its worker", (await host()).page === "first" && (await host()).workers === 1,
+        JSON.stringify(await host()));
+
     await frame.locator("#save-btn:not([disabled])").click({ timeout: 30000 });
-    check("saving reports the new chat id", await until(async () => typeof (await shown())?.exchange_id === "string"), JSON.stringify(await shown()));
-    const savedId = (await shown()).exchange_id;
-    check("saving reports saved", await until(async () => (await saved()).at(-1) === true), JSON.stringify(await saved()));
-    check("reporting keeps the same mount", (await hosted(page)).mounts.length === 1, JSON.stringify((await hosted(page)).mounts));
+    check("saving reports the new chat id", await until(async () => typeof (await last("active"))?.exchange_id === "string"),
+        JSON.stringify(await reports("active")));
+    const savedId = (await last("active")).exchange_id;
+    check("saving reports saved", await until(async () => (await last("unsaved"))?.value === false),
+        JSON.stringify(await reports("unsaved")));
 
-    // Change the chat, then open another one; the new one starts saved.
-    await frame.locator("#input").fill("one more thing");
-    await frame.locator("#send-btn").click();
-    await frame.locator("text=Noted.").nth(1).waitFor({ timeout: 60000 });
-    check("asking again reports unsaved", (await saved()).at(-1) === false, JSON.stringify(await saved()));
-    await command(page, { exchange_id: "g1" });
-    check("opening another chat remounts, reports saved and its id",
-        await until(async () => (await shown())?.exchange_id === "g1" && (await saved()).at(-1) === true),
-        JSON.stringify(await hosted(page)));
-    check("only changes are reported", (await saved()).every((v, i, all) => i === 0 || v !== all[i - 1]), JSON.stringify(await saved()));
-    await command(page, { exchange_id: savedId });
-    await until(async () => (await shown())?.exchange_id === savedId);
+    await command({ type: "open", exchange_id: "g1" });
+    check("opening a chat reports it, unchanged",
+        await until(async () => (await last("active"))?.exchange_id === "g1" && (await last("unsaved"))?.value === false, 60000),
+        JSON.stringify((await host()).reports.slice(-4)));
+    check("the opened chat shows", await until(async () => /Which aligner\?/.test(await text())), (await text()).slice(-200));
+    check("opening keeps the page, with a new worker", (await host()).page === "first" && (await host()).workers === 2,
+        JSON.stringify(await host()));
 
-    // WebKit reports the wrong sender for messages sent from a click.
-    await page.frameLocator("#galaxy_visualization").locator("#reset-btn").click();
-    check("clicking New reports the chat view and saved",
-        await until(async () => (await shown())?.exchange_id === undefined && (await saved()).at(-1) === true),
-        JSON.stringify(await hosted(page)));
-    check("only commands remount it", (await hosted(page)).mounts.length === 3, JSON.stringify((await hosted(page)).mounts));
+    // An open followed at once by a question: the question comes after the open.
+    const before = (await host()).reports.length;
+    await page.evaluate((id) => {
+        window.__command({ type: "open", exchange_id: id });
+        window.__command({ type: "ask", question: "and then?" });
+    }, savedId);
+    check("a question after an open is asked in a new conversation",
+        await until(async () => /and then\?[\s\S]*Noted\./.test(await text()) && !/remember this/.test(await text()), 60000),
+        (await text()).slice(-300));
+    const after = (await host()).reports.slice(before).filter((r) => r.type === "active").map((r) => r.exchange_id);
+    check("the open ran before the question", JSON.stringify(after) === JSON.stringify([savedId, null]), JSON.stringify(after));
+    check("both kept the page", (await host()).page === "first" && (await host()).workers === 3, JSON.stringify(await host()));
+
+    // Two questions at once: neither is dropped.
+    await page.evaluate(() => {
+        window.__command({ type: "ask", question: "first of two" });
+        window.__command({ type: "ask", question: "second of two" });
+    });
+    check("the second of two questions is asked",
+        await until(async () => /second of two[\s\S]*Noted\./.test(await text()), 60000), (await text()).slice(-300));
+    check("asking the second holds the first's running turn, visibly",
+        /Its running turn stopped; Galaxy jobs it started are still watched\./.test(await text()), (await text()).slice(-300));
 
     if (BROWSER !== "webkit") {
-        const current = () => page.frameLocator("#galaxy_visualization");
         await fetch(`${STUB}/__script?name=slow-once`);
-        await current().locator("#input").fill("answer slowly");
-        await current().locator("#send-btn").click();
-        check("the answer is in flight", await until(async () => (await calls()) >= 1));
-
-        await command(page, { exchange_id: savedId });
-        check("a command during an answer opens the saved chat",
-            await until(async () => (await shown())?.exchange_id === savedId), JSON.stringify(await shown()));
-
-        await command(page, {});
-        const back = await until(async () => /answer slowly/.test(await current().locator("body").innerText()), 60000);
-        check("the interrupted question is kept", back);
+        const already = await calls();
+        await command({ type: "ask", question: "answer slowly" });
+        check("the answer is in flight", await until(async () => (await calls()) > already));
+        await command({ type: "ask", question: "the next question" });
+        check("a question during an answer is answered in a new conversation",
+            await until(async () => /the next question[\s\S]*The answer after the reload\./.test(await text()), 60000),
+            (await text()).slice(-300));
+        check("it says the running turn stopped", /Its running turn stopped/.test(await text()));
         await new Promise((r) => setTimeout(r, 3000));
-        const text = await current().locator("body").innerText();
-        check("the interrupted turn ends at the question",
-            !/the abandoned answer/.test(text) && (await calls()) === 1, `calls ${await calls()}`);
-        const idle = await until(() => current().locator("#send-btn").evaluate((b) => !b.classList.contains("hidden")), 30000);
-        check("Send is available", idle, idle ? "" : (await current().locator("body").innerText()).replace(/\s+/g, " ").slice(-300));
+        check("the held answer never shows", !/the abandoned answer/.test(await text()));
+        const idle = await until(() => frame.locator("#send-btn").evaluate((b) => !b.classList.contains("hidden")), 30000);
+        check("Send is available", idle);
+        await fetch(`${STUB}/__script?name=plain`);
     }
+
+    // Commands only come over Galaxy's port: another frame is ignored.
+    const asked = (await host()).reports.length;
+    await page.evaluate(() => window.__foreign({ type: "ask", question: "from another frame" }));
+    await new Promise((r) => setTimeout(r, 3000));
+    check("a command from another frame is ignored",
+        !/from another frame/.test(await text()) && (await host()).reports.length === asked, (await text()).slice(-200));
+    check("only one frame was ever mounted", (await host()).mounts.length === 1 && (await host()).page === "first",
+        JSON.stringify(await host()));
 
     // Artifacts show in the chat's own pane, inside its frame.
     const shows = await machine(browser, `${HOST}?dataset_id=d1&frame=1&view=chat`);
