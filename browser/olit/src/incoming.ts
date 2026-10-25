@@ -8,8 +8,13 @@ export type View = typeof VISUALIZATION_VIEW | typeof CHAT_VIEW;
 
 const VIEWS: readonly string[] = [VISUALIZATION_VIEW, CHAT_VIEW];
 
+/** The name Olit's plugin has when Galaxy names none. */
+export const DEFAULT_PLUGIN = "olit";
+
 export interface OlitIncoming {
   root: string;
+  /** The name Galaxy serves Olit's plugin under. */
+  plugin: string;
   /** How Galaxy mounted Olit. */
   view: View;
   /** Id of the saved visualization Galaxy opened, if any. */
@@ -35,6 +40,7 @@ export function parseIncoming(container: HTMLElement, hostSearch = ""): OlitInco
   const plugin = raw.visualization_plugin || {};
   return {
     root: raw.root || "/",
+    plugin: /^[A-Za-z0-9_.-]+$/.test(plugin.name ?? "") ? plugin.name : DEFAULT_PLUGIN,
     view: VIEWS.includes(config.view) ? config.view : VISUALIZATION_VIEW,
     visualizationId:
       raw.visualization_id || new URLSearchParams(hostSearch).get("visualization_id") || undefined,

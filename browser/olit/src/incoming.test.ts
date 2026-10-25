@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CHAT_VIEW, parseIncoming, VISUALIZATION_VIEW } from "./incoming";
+import { CHAT_VIEW, DEFAULT_PLUGIN, parseIncoming, VISUALIZATION_VIEW } from "./incoming";
 
 const container = (incoming: object) => {
   const element = document.createElement("div");
@@ -43,5 +43,20 @@ describe("view", () => {
       exchangeId: undefined,
       question: undefined,
     });
+  });
+});
+
+describe("plugin", () => {
+  it("is the name Galaxy serves the plugin under", () => {
+    expect(parseIncoming(container({ visualization_plugin: { name: "chat_agent" } })).plugin).toBe(
+      "chat_agent",
+    );
+  });
+
+  it("is the default without a usable name", () => {
+    expect(parseIncoming(container({})).plugin).toBe(DEFAULT_PLUGIN);
+    expect(parseIncoming(container({ visualization_plugin: { name: "../x" } })).plugin).toBe(
+      DEFAULT_PLUGIN,
+    );
   });
 });

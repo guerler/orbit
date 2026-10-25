@@ -38,7 +38,8 @@ async function say(frame, text) {
 const stored = async () => (await fetch(`${STUB}/__chats`)).json();
 const hosted = (page) => page.evaluate(() => window.__galaxyAi);
 /** Returns the chat id the plugin last reported. */
-const shown = async (page) => (await hosted(page)).configs.at(-1)?.exchange_id ?? null;
+const shown = async (page) =>
+    (await hosted(page)).reports.filter((report) => report.type === "active").at(-1)?.exchange_id ?? null;
 
 /** Save once the turn has ended, and wait for the write it makes; the stub serves every drive. */
 async function save(frame) {
@@ -73,7 +74,7 @@ async function save(frame) {
         JSON.stringify(saved.writes.slice(-2)),
     );
 
-    check("saving reports the new chat id", (await shown(first.page)) === id, JSON.stringify((await hosted(first.page)).configs));
+    check("saving reports the new chat id", (await shown(first.page)) === id, JSON.stringify((await hosted(first.page)).reports));
 
     const second = await machine(browser, `${HOST}?exchange_id=${id}&frame=1&view=chat`);
     check("the second machine boots on the saved chat", second.ready);
@@ -117,7 +118,7 @@ async function save(frame) {
 
     // A later command opens another chat without reloading the page.
     const marker = await held.page.evaluate(() => (window.__marker = Math.random()));
-    await held.page.evaluate((chatId) => window.__command({ exchange_id: chatId }), id);
+    await held.page.evaluate((chatId) => window.__command({ type: "open", exchange_id: chatId }), id);
     const switched = await held.frame
         .locator("text=and one more turn")
         .first()
@@ -125,8 +126,11 @@ async function save(frame) {
         .then(() => true, () => false);
     check(
         "a later command opens the other chat in the same page and reports its id",
-        switched && (await shown(held.page)) === id && (await held.page.evaluate(() => window.__marker)) === marker,
-        JSON.stringify((await hosted(held.page)).configs),
+        switched &&
+            (await shown(held.page)) === id &&
+            (await held.page.evaluate(() => window.__marker)) === marker &&
+            (await hosted(held.page)).mounts.length === 1,
+        JSON.stringify((await hosted(held.page)).reports),
     );
 
     // A chat this user cannot open: another user's, or deleted.
@@ -137,7 +141,7 @@ async function save(frame) {
         missing.ready && /Could not open saved conversation gone/.test(missingText),
         missingText.replace(/\s+/g, " ").slice(0, 300),
     );
-    check("it reports the chat view only", (await shown(missing.page)) === null, JSON.stringify((await hosted(missing.page)).configs));
+    check("it reports the chat view only", (await shown(missing.page)) === null, JSON.stringify((await hosted(missing.page)).reports));
 
     // A question from Galaxy, asked in a new conversation.
     const asked = await machine(browser, `${HOST}?question=${encodeURIComponent("count my datasets please")}&frame=1&view=chat`);
