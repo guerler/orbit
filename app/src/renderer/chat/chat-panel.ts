@@ -58,16 +58,20 @@ export class ChatPanel {
     this.container = container;
     this.copyBtn = this.initCopyButton();
 
-    this.container.addEventListener("copy", (e) => {
-      const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0) return;
-      const frag = sel.getRangeAt(0).cloneContents();
-      const tmp = document.createElement("div");
-      tmp.appendChild(frag);
-      const md = fragmentToMarkdown(tmp);
-      e.preventDefault();
-      e.clipboardData!.setData("text/plain", md);
-    });
+    document.addEventListener(
+      "copy",
+      (e) => {
+        const selected = this.readSelection();
+        if (!selected || !this.container.contains(selected.range.startContainer)) return;
+        const frag = selected.range.cloneContents();
+        const tmp = document.createElement("div");
+        tmp.appendChild(frag);
+        const md = fragmentToMarkdown(tmp);
+        e.preventDefault();
+        e.clipboardData!.setData("text/plain", md);
+      },
+      { signal: this.attached.signal },
+    );
 
     this.container.addEventListener("scroll", () => {
       const { scrollTop, scrollHeight, clientHeight } = this.container;
@@ -486,6 +490,35 @@ export class ChatPanel {
     this.copyBtn.remove();
   }
 
+  /** Returns the selected range and its ends, read inside the panel's shadow root when it has one. */
+  private readSelection(): { range: Range; signature: SelectionSignature } | null {
+    const sel = window.getSelection();
+    const root = this.container.getRootNode();
+    let selected: { range: Range; signature: SelectionSignature } | null = null;
+    if (sel && root instanceof ShadowRoot && sel.getComposedRanges && sel.rangeCount > 0) {
+      const [composed] = sel.getComposedRanges({ shadowRoots: [root] });
+      const range = document.createRange();
+      range.setStart(composed.startContainer, composed.startOffset);
+      range.setEnd(composed.endContainer, composed.endOffset);
+      const signature = {
+        anchorNode: range.startContainer,
+        anchorOffset: range.startOffset,
+        focusNode: range.endContainer,
+        focusOffset: range.endOffset,
+      };
+      selected = range.collapsed ? null : { range, signature };
+    } else if (sel && !sel.isCollapsed && sel.rangeCount > 0) {
+      const signature = {
+        anchorNode: sel.anchorNode,
+        anchorOffset: sel.anchorOffset,
+        focusNode: sel.focusNode,
+        focusOffset: sel.focusOffset,
+      };
+      selected = { range: sel.getRangeAt(0), signature };
+    }
+    return selected;
+  }
+
   private initCopyButton(): HTMLElement {
     const { signal } = this.attached;
     const COPY_LABEL = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy`;
@@ -493,7 +526,9 @@ export class ChatPanel {
     btn.className = "chat-copy-btn";
     btn.hidden = true;
     btn.innerHTML = COPY_LABEL;
-    document.body.appendChild(btn);
+    // Appends the button to the panel's shadow root when it has one, so its styles apply there.
+    const root = this.container.getRootNode();
+    (root instanceof ShadowRoot ? root : document.body).appendChild(btn);
 
     // selectionchange fires while a mousedown is still in progress and the old
     // selection is still live, which would immediately re-show the button we
@@ -511,14 +546,7 @@ export class ChatPanel {
     let selectionEpoch = 0;
 
     const currentSignature = (): SelectionSignature | null => {
-      const sel = window.getSelection();
-      if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
-      return {
-        anchorNode: sel.anchorNode,
-        anchorOffset: sel.anchorOffset,
-        focusNode: sel.focusNode,
-        focusOffset: sel.focusOffset,
-      };
+      return this.readSelection()?.signature ?? null;
     };
 
     btn.addEventListener("mousedown", (e) => e.preventDefault()); // keep selection alive on button click
@@ -526,9 +554,10 @@ export class ChatPanel {
     document.addEventListener(
       "mousedown",
       (e) => {
-        // contains() so clicking the button's inner <svg> (a child) still counts
-        // as the button -- otherwise the icon hit hides it before the copy fires.
-        if (!btn.contains(e.target as Node)) {
+        // composedPath() so clicking the button's inner <svg> (a child) still counts
+        // as the button -- otherwise the icon hit hides it before the copy fires --
+        // also when a shadow root retargets the event to its host.
+        if (!e.composedPath().includes(btn)) {
           btn.hidden = true;
           mouseIsDown = true;
           dismissal.suppress(currentSignature());
@@ -553,12 +582,12 @@ export class ChatPanel {
     );
 
     btn.addEventListener("click", () => {
-      const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0) {
+      const selected = this.readSelection();
+      if (!selected) {
         btn.hidden = true;
         return;
       }
-      const frag = sel.getRangeAt(0).cloneContents();
+      const frag = selected.range.cloneContents();
       const tmp = document.createElement("div");
       tmp.appendChild(frag);
       const md = fragmentToMarkdown(tmp);
@@ -640,8 +669,8 @@ export class ChatPanel {
     );
 
     const updateBtn = () => {
-      const sel = window.getSelection();
-      if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+      const selected = this.readSelection();
+      if (!selected) {
         btn.hidden = true;
         return;
       }
@@ -650,12 +679,12 @@ export class ChatPanel {
         btn.hidden = true;
         return;
       }
-      const range = sel.getRangeAt(0);
+      const range = selected.range;
       const rect = range.getBoundingClientRect();
       const crect = this.container.getBoundingClientRect();
       const placement = computeCopyButtonPlacement({
-        isCollapsed: sel.isCollapsed,
-        rangeCount: sel.rangeCount,
+        isCollapsed: false,
+        rangeCount: 1,
         inContainer: this.container.contains(range.commonAncestorContainer),
         rect: {
           top: rect.top,

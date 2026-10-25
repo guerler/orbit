@@ -4,7 +4,8 @@
 
 @import url("./assets/fonts/fonts.css");
 
-:root {
+:root,
+:host {
   color-scheme: dark;
 
   /* Galaxy brand palette */
@@ -95,7 +96,8 @@
   --footer-highlight-text: var(--galaxy-dark);
 }
 
-:root[data-theme="light"] {
+:root[data-theme="light"],
+:host([data-theme="light"]) {
   color-scheme: light;
 
   --masthead: #25537b;
@@ -173,7 +175,8 @@
 }
 
 html,
-body {
+body,
+:host {
   height: 100%;
   overflow: hidden;
   background: var(--bg);
@@ -391,10 +394,13 @@ body.platform-darwin #whatsnew-banner a {
 
 /* Collapsed artifact pane: chat takes full width */
 body.artifact-collapsed #artifact-pane,
-body.artifact-collapsed #divider {
+body.artifact-collapsed #divider,
+:host(.artifact-collapsed) #artifact-pane,
+:host(.artifact-collapsed) #divider {
   display: none;
 }
-body.artifact-collapsed #chat-pane {
+body.artifact-collapsed #chat-pane,
+:host(.artifact-collapsed) #chat-pane {
   flex: 1 1 100%;
 }
 
@@ -2224,7 +2230,8 @@ body.platform-darwin #files-title {
   opacity: 0.85;
 }
 
-:root[data-theme="light"] #send-btn {
+:root[data-theme="light"] #send-btn,
+:host([data-theme="light"]) #send-btn {
   background: #ffffff;
   color: var(--galaxy-primary);
   border-color: var(--accent);

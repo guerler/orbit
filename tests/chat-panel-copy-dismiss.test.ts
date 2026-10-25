@@ -40,6 +40,7 @@ function makeSelection(container: HTMLElement, text: string): FakeSelection {
   const node = document.createTextNode(text);
   container.appendChild(node);
   const range = {
+    startContainer: node,
     commonAncestorContainer: node,
     getBoundingClientRect: () => ({
       top: 100,
@@ -371,5 +372,46 @@ describe("a disposed panel", () => {
     currentSelection = makeSelection(container, "after the panel went");
     selectionchange();
     expect(btn.hidden).toBe(true);
+  });
+});
+
+describe("copying a selection", () => {
+  function copy(): { data: string | undefined; prevented: boolean } {
+    let data: string | undefined;
+    const event = new Event("copy", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", {
+      value: { setData: (_type: string, value: string) => (data = value) },
+    });
+    document.dispatchEvent(event);
+    return { data, prevented: event.defaultPrevented };
+  }
+
+  it("copies a selection in the chat as markdown, even when the event reaches only the document", () => {
+    const { container } = setup();
+    currentSelection = makeSelection(container, "hello world");
+    expect(copy()).toEqual({ data: "hello world", prevented: true });
+  });
+
+  it("copies a selection that starts in the chat and runs past it, as a triple-click does", () => {
+    const { container } = setup();
+    currentSelection = makeSelection(container, "hello world");
+    const range = currentSelection.getRangeAt(0) as { commonAncestorContainer: Node };
+    range.commonAncestorContainer = document.body;
+    expect(copy()).toEqual({ data: "hello world", prevented: true });
+  });
+
+  it("leaves a selection outside the chat to the browser", () => {
+    setup();
+    const outside = document.body.appendChild(document.createElement("p"));
+    currentSelection = makeSelection(outside, "elsewhere");
+    expect(copy()).toEqual({ data: undefined, prevented: false });
+  });
+
+  it("stops copying once the panel is disposed", () => {
+    const container = document.body.appendChild(document.createElement("div"));
+    const panel = new ChatPanel(container);
+    currentSelection = makeSelection(container, "hello world");
+    panel.dispose();
+    expect(copy()).toEqual({ data: undefined, prevented: false });
   });
 });
