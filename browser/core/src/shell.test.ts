@@ -193,6 +193,78 @@ describe("dispose", () => {
   });
 });
 
+describe("repeated mounts", () => {
+  /** Every listener added to the document or the window, kept until it is removed or aborted. */
+  function trackListeners() {
+    const live = new Set<string>();
+    const keys = new Map<EventListenerOrEventListenerObject, string>();
+    const restore: (() => void)[] = [];
+    for (const [name, target] of [
+      ["document", document],
+      ["window", window],
+    ] as const) {
+      const add = target.addEventListener.bind(target);
+      const remove = target.removeEventListener.bind(target);
+      const capture = (options?: boolean | AddEventListenerOptions) =>
+        typeof options === "boolean" ? options : !!options?.capture;
+      target.addEventListener = ((type: string, listener: any, options?: any) => {
+        const key = `${name} ${type} ${capture(options)} ${live.size}:${Math.random()}`;
+        keys.set(listener, key);
+        live.add(key);
+        options?.signal?.addEventListener("abort", () => live.delete(key));
+        add(type, listener, options);
+      }) as typeof target.addEventListener;
+      target.removeEventListener = ((type: string, listener: any, options?: any) => {
+        const key = keys.get(listener);
+        if (key) live.delete(key);
+        remove(type, listener, options);
+      }) as typeof target.removeEventListener;
+      restore.push(() => {
+        target.addEventListener = add;
+        target.removeEventListener = remove;
+      });
+    }
+    return { live, restore: () => restore.forEach((r) => r()) };
+  }
+
+  it("leaves no listener, button, modal or worker behind after each dispose", async () => {
+    // happy-dom has no Option constructor, which the provider picker uses.
+    vi.stubGlobal("Option", function (text: string, value: string) {
+      return Object.assign(document.createElement("option"), { text, value });
+    });
+    const tracked = trackListeners();
+    const workers: ReturnType<typeof fakeWorker>[] = [];
+    const buttons = document.querySelectorAll(".chat-copy-btn").length;
+    try {
+      for (let cycle = 0; cycle < 3; cycle++) {
+        const worker = fakeWorker();
+        workers.push(worker);
+        const handle = await mountOrbitBrowser(container, {
+          ...base,
+          createWorker: () => worker as unknown as Worker,
+          launch: async () => ({ historyId: "h1" }),
+        });
+        worker.say({ type: "ready" } as WorkerMessage);
+        expect(tracked.live.size).toBeGreaterThan(0);
+        if (cycle === 2) {
+          // The provider picker is open when the page goes away.
+          container.querySelector<HTMLButtonElement>("#model-btn")!.click();
+          await new Promise((resolve) => setTimeout(resolve));
+          expect(container.querySelector("#cred-overlay:not(.hidden)")).not.toBeNull();
+        }
+        handle.dispose();
+        expect([...tracked.live]).toEqual([]);
+        expect(document.querySelectorAll(".chat-copy-btn")).toHaveLength(buttons);
+        expect(container.childElementCount).toBe(0);
+      }
+      expect(workers.map((w) => w.terminate.mock.calls.length)).toEqual([1, 1, 1]);
+    } finally {
+      tracked.restore();
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe("currentHistoryLaunch", () => {
   const galaxy = (get: () => Promise<unknown>) => ({ get }) as unknown as Galaxy;
 
