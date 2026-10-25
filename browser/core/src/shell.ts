@@ -116,6 +116,11 @@ export interface OrbitBrowserHandle {
    * the detached panel.
    */
   dispose(): void;
+  /**
+   * Ask `question` in a new conversation once the page is ready, after the questions asked before
+   * it. A run in progress is held, as New would hold it.
+   */
+  ask(question: string): void;
 }
 
 /** With no dataset to start from, the conversation is Galaxy's current history's. */
@@ -176,6 +181,10 @@ export async function mountOrbitBrowser(
   if (el.save && sessions?.label) el.save.title = sessions.label;
   const mounted = new AbortController();
   let started: AgentClient | undefined;
+  /** Questions from the host, each asked in a new conversation, in the order they came. */
+  const asks: string[] = [];
+  /** Asks the next question once the page can; set once the page is up. */
+  let askNext = () => {};
   const handle: OrbitBrowserHandle = {
     dispose() {
       mounted.abort();
@@ -183,6 +192,10 @@ export async function mountOrbitBrowser(
       started?.close();
       chat.dispose();
       container.replaceChildren();
+    },
+    ask(question) {
+      asks.push(question);
+      askNext();
     },
   };
   const artifactPane = mountArtifactPane(container, mounted.signal, brand);
@@ -207,10 +220,13 @@ export async function mountOrbitBrowser(
   // The page's own Galaxy requests take the transport the agent's do.
   const galaxy = connectGalaxy({ root: config.galaxy_root, credentials });
   const launch = await (options.launch ?? currentHistoryLaunch)(galaxy);
+  if (launch.ask) asks.push(launch.ask);
   if (launch.stop) {
     chat.addErrorMessage(launch.stop);
     el.input.disabled = true;
     el.send.disabled = true;
+    askNext = () =>
+      chat.addErrorMessage(`Could not ask "${asks.shift()}": this page cannot start.`);
     return handle;
   }
   let savedId = launch.saved?.id;
@@ -373,17 +389,18 @@ export async function mountOrbitBrowser(
   /** Said once ready, when the user chose to continue a record whose conversation is gone. */
   let continuing: string | undefined;
 
-  /** Question from the host, asked once an empty conversation is shown. */
-  let pendingAsk = launch.ask;
-  function ask() {
-    if (pendingAsk && view.turns) {
-      startNew();
-    } else if (pendingAsk) {
-      el.input.value = pendingAsk;
-      pendingAsk = undefined;
-      submit();
+  /** Asks the host's next question in an empty conversation, starting one when needed. */
+  askNext = () => {
+    if (asks.length && ready && afterReset === undefined) {
+      if (view.turns || busy) {
+        startNew(busy);
+      } else {
+        el.input.value = asks.shift()!;
+        submit();
+        askNext();
+      }
     }
-  }
+  };
 
   const agent = new AgentClient((message) => {
     if (message.type === "events") {
@@ -391,7 +408,7 @@ export async function mountOrbitBrowser(
       if (afterReset && message.events.some((e) => e.type === "snapshot")) {
         info(afterReset);
         afterReset = undefined;
-        ask();
+        askNext();
       }
       refreshControls();
     } else if (message.type === "settled") {
@@ -450,7 +467,7 @@ export async function mountOrbitBrowser(
       if (launch.greeting) {
         info(launch.greeting);
       }
-      ask();
+      askNext();
     } else if (message.type === "recoverable") {
       // The browser kept nothing of a session here; the user says which, if any, this is.
       const line = info(
@@ -587,14 +604,18 @@ export async function mountOrbitBrowser(
     }
   });
 
-  /** Starts a new conversation. The previous one is kept, saved or not. */
-  function startNew() {
+  /**
+   * Starts a new conversation. The previous one is kept, saved or not; `holding` says its running
+   * turn stops.
+   */
+  function startNew(holding = false) {
     showing(undefined);
     sessions?.savedState(true);
     el.artifactContent.innerHTML = "";
     afterReset =
       "Started a new conversation. The previous one can't be reopened here unless you saved it; " +
-      "its notebook is unchanged.";
+      "its notebook is unchanged." +
+      (holding ? " Its running turn stopped; Galaxy jobs it started are still watched." : "");
     agent.reset();
   }
   el.input.addEventListener("keydown", (e) => {
