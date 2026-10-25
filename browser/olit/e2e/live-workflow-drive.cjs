@@ -15,6 +15,9 @@ const check = (name, ok, detail) => {
     if (!ok) failed += 1;
     console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  — " + detail : ""}`);
 };
+// Selects the session records, pages slugged `notebook-<session uuid>`.
+const NOTEBOOK = /^notebook-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const notebooks = (pages) => pages.filter((p) => NOTEBOOK.test(p.slug || "") && !p.deleted);
 const api = async (path) => {
     const sep = path.includes("?") ? "&" : "?";
     const r = await fetch(`${GALAXY}/${path}${sep}key=${KEY}`);
@@ -26,13 +29,11 @@ const api = async (path) => {
         if (!v) { console.log(`FAIL  missing env ${k}`); process.exit(1); }
     }
     const invocationsBefore = (await api(`api/invocations?workflow_id=${WORKFLOW}`)) || [];
-    // The record accumulates across sessions, so ids written by earlier runs are legitimate.
-    // Baseline it now and only validate what this run adds.
-    const priorPage = (await api("api/pages?limit=500")) || [];
-    const priorBound = priorPage.find((p) => p.slug === `olit-${HISTORY}`);
-    const recordBefore = priorBound
-        ? ((await api(`api/pages/${priorBound.id}`)) || {}).content || ""
-        : "";
+    // Ids a record carried before this run are legitimate, so keep each record's content now.
+    const prior = {};
+    for (const p of notebooks((await api(`api/pages?history_id=${HISTORY}`)) || [])) {
+        prior[p.id] = { updated: p.update_time, content: ((await api(`api/pages/${p.id}`)) || {}).content || "" };
+    }
 
     const browser = await chromium.launch();
     const page = await (await browser.newContext({ viewport: { width: 1280, height: 900 } })).newPage();
@@ -111,25 +112,20 @@ const api = async (path) => {
     }
 
     // The agent may invoke into a history other than the bound one, so check both: the
-    // bound history's record must carry the shell-written session block, and whichever
-    // record the agent wrote must describe the work.
-    const pages = (await api("api/pages?limit=500")) || [];
+    // bound history must hold a record this run wrote, and whichever record the agent wrote
+    // must describe the work.
+    const pages = notebooks((await api("api/pages?limit=500")) || []);
     const read = async (p) => ((await api(`api/pages/${p.id}`)) || {}).content || "";
 
-    const bound = pages.find((p) => p.slug === `olit-${HISTORY}`);
-    check("bound history has a record", !!bound, bound ? bound.id : `no olit-${HISTORY}`);
-    if (bound) {
-        const content = await read(bound);
-        check("shell wrote the session block", content.includes("```olit-session"),
-              `${content.length} chars`);
-        require("fs").writeFileSync(`${OUT}/live-record-bound.md`, content);
-    }
+    const onHistory = notebooks((await api(`api/pages?history_id=${HISTORY}`)) || []);
+    const bound = onHistory.find((p) => !prior[p.id] || prior[p.id].updated !== p.update_time);
+    check("bound history has a record", !!bound, bound ? bound.slug : `no new notebook on ${HISTORY}`);
+    if (bound) require("fs").writeFileSync(`${OUT}/live-record-bound.md`, await read(bound));
 
     // Only records touched during this run count; a leftover page from an earlier run
     // otherwise satisfies the check and hides a failure.
-    const olitPages = pages.filter((p) => (p.slug || "").startsWith("olit-"));
     let narrated = null;
-    for (const p of olitPages) {
+    for (const p of pages) {
         const c = await read(p);
         const fresh = invoked && c.includes(invoked.id);
         if (fresh && /invocation|workflow/i.test(c)) narrated = { page: p, content: c };
@@ -139,12 +135,13 @@ const api = async (path) => {
     if (narrated) require("fs").writeFileSync(`${OUT}/live-record.md`, narrated.content);
 
     check("the work stayed in the bound history",
-          !!(narrated && narrated.page.slug === `olit-${HISTORY}`),
+          !!(narrated && onHistory.some((p) => p.id === narrated.page.id)),
           narrated ? `wrote to ${narrated.page.slug}` : "n/a");
 
     // A record can name the work and still be wrong: the ids are the reproducibility
     // claim, and a plausible-looking wrong one points the reader at somebody else's work.
     if (narrated) {
+        const recordBefore = (prior[narrated.page.id] || {}).content || "";
         const known = new Set([HISTORY, WORKFLOW, DATASET, invoked && invoked.id, bound && bound.id]);
         for (const d of (await api(`api/histories/${HISTORY}/contents?v=dev&keys=id`)) || []) known.add(d.id);
         const inv = invoked && (await api(`api/invocations/${invoked.id}`));
