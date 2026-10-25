@@ -256,31 +256,44 @@ const escapeAttr = (text) =>
 // saved visualization. With `view=chat`, the plugin is mounted as the chat with `{ view: "chat" }`
 // plus `exchange_id` or `question`.
 /**
- * Host page that mounts the plugin as Galaxy's chat. Each window.__command remounts the frame.
- * Records messages from the frame's window only.
+ * Host page that hosts the plugin as Galaxy AI's chat, as Galaxy's AiChatBrain does: one frame, a
+ * port handed into it once it says ready, and commands over that port in order. Counts the frame's
+ * workers and page loads, and can send a command from another frame.
  */
 function galaxyAi(config) {
     return [
-        "  const record = (window.__galaxyAi = { mounts: [], saved: [], configs: [] });",
-        "  let frame = document.getElementById('galaxy_visualization');",
-        "  const mount = (config) => {",
-        "    record.mounts.push(config);",
-        "    const next = document.createElement('iframe');",
-        "    next.id = 'galaxy_visualization';",
-        "    next.title = 'visualization';",
-        "    next.style.cssText = frame.style.cssText;",
-        "    frame.replaceWith(next);",
-        "    frame = next;",
-        "    fill(frame.contentDocument, config);",
-        "  };",
+        "  const config = " + JSON.stringify(config) + ";",
+        "  const record = (window.__galaxyAi = { mounts: [config], reports: [], charts: [], workers: 0 });",
+        "  const frame = document.getElementById('galaxy_visualization');",
+        "  const queue = [];",
+        "  let port;",
+        "  const deliver = () => { while (port && queue.length) port.postMessage({ channel: 'galaxy-ai', ...queue.shift() }); };",
         "  window.addEventListener('message', (event) => {",
         "    const m = event.data;",
-        "    if (event.source !== frame.contentWindow || m?.from !== 'galaxy-visualization') return;",
-        "    if (m.visualization_saved !== undefined) record.saved.push(m.visualization_saved);",
-        "    if (m.visualization_config !== undefined) record.configs.push(m.visualization_config);",
+        "    const fromFrame = event.source === frame.contentWindow || event.source === window;",
+        "    if (!fromFrame || event.origin !== window.location.origin) return;",
+        "    if (m?.from === 'galaxy-visualization') record.charts.push(m);",
+        "    if (m?.channel === 'galaxy-ai' && m.type === 'ready' && !port) {",
+        "      const channel = new MessageChannel();",
+        "      port = channel.port1;",
+        "      port.onmessage = (e) => record.reports.push(e.data);",
+        "      frame.contentWindow.postMessage({ channel: 'galaxy-ai', type: 'connect' }, window.location.origin, [channel.port2]);",
+        "      record.reports.push({ type: 'ready' });",
+        "      deliver();",
+        "    }",
         "  });",
-        "  window.__command = (given) => mount({ view: 'chat', ...given });",
-        `  mount(${JSON.stringify(config)});`,
+        "  window.__command = (command) => { queue.push(command); deliver(); };",
+        "  window.__foreign = (command) => {",
+        "    const other = document.body.appendChild(document.createElement('iframe'));",
+        "    other.style.display = 'none';",
+        "    const message = { channel: 'galaxy-ai', ...command };",
+        "    other.contentWindow.Function('target', 'message', \"target.postMessage(message, '*'); target.postMessage({ channel: 'galaxy-ai', type: 'connect' }, '*', [new MessageChannel().port2]);\")(frame.contentWindow, message);",
+        "  };",
+        "  const view = frame.contentWindow;",
+        "  const Worker = view.Worker;",
+        "  view.Worker = function (...args) { record.workers++; return new Worker(...args); };",
+        "  view.__page = 'first';",
+        "  fill(frame.contentDocument, config);",
     ];
 }
 
