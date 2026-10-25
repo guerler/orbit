@@ -269,4 +269,40 @@ describe("a question from the host", () => {
     worker.say(snapshot([]));
     expect(submitted(worker)).toEqual(["How many datasets?"]);
   });
+
+  it("asks later questions in order, each in a new conversation of the same worker", async () => {
+    const worker = fakeWorker();
+    const createWorker = vi.fn(() => worker as unknown as Worker);
+    const handle = await mountOrbitBrowser(container, {
+      ...base,
+      createWorker,
+      launch: async () => ({ historyId: "h1" }),
+    });
+    handle.ask("First?");
+    handle.ask("Second?");
+    expect(submitted(worker)).toEqual([]);
+    worker.say(snapshot([]));
+    worker.say({ type: "ready" } as WorkerMessage);
+    expect(submitted(worker)).toEqual(["First?"]);
+    // The first is still running: it is held, and the second asked in a new conversation.
+    expect(worker.sent.filter((m) => m.type === "reset")).toHaveLength(1);
+    worker.say(snapshot([]));
+    expect(submitted(worker)).toEqual(["First?", "Second?"]);
+    expect(container.textContent).toContain(
+      "Its running turn stopped; Galaxy jobs it started are still watched.",
+    );
+    expect(createWorker).toHaveBeenCalledTimes(1);
+  });
+
+  it("says a question cannot be asked on a page that cannot start", async () => {
+    const handle = await mountOrbitBrowser(container, {
+      ...base,
+      createWorker: vi.fn(),
+      launch: async () => ({ stop: "stopped" }),
+    });
+    handle.ask("Anyone there?");
+    expect(container.textContent).toContain(
+      'Could not ask "Anyone there?": this page cannot start.',
+    );
+  });
 });
