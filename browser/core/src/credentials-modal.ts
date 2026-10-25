@@ -76,6 +76,7 @@ function openPicker(
   cancellable: boolean,
   brand: Brand,
   offered: readonly Provider[],
+  signal?: AbortSignal,
 ): Promise<Credentials | null> {
   const stored = loadCredentials(brand);
 
@@ -152,6 +153,8 @@ function openPicker(
         close(null);
       }
     };
+    // The page that opened it goes away: the picker closes as if dismissed.
+    signal?.addEventListener("abort", () => close(null), { once: true });
     if (cancellable) {
       document.addEventListener("keydown", onKey, true);
       overlay.addEventListener("click", (e) => {
@@ -228,9 +231,10 @@ export async function switchProvider(
   container: HTMLElement,
   brand: Brand = DEFAULT_BRAND,
   offered: readonly Provider[] = PROVIDERS,
+  signal?: AbortSignal,
 ): Promise<Credentials | undefined> {
   const before = JSON.stringify(loadCredentials(brand));
-  const picked = await openPicker(container, true, brand, offered);
+  const picked = await openPicker(container, true, brand, offered, signal);
   return picked && JSON.stringify(picked) !== before ? picked : undefined;
 }
 

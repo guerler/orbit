@@ -109,12 +109,7 @@ export interface OrbitBrowserOptions {
 
 /** The mounted page, as its host sees it. */
 export interface OrbitBrowserHandle {
-  /**
-   * End the agent's worker, detach what the shell attached to `container` and outside it, and
-   * empty it. Orbit's ChatPanel adds document and window listeners of its own (mouseup, mousedown,
-   * selectionchange, keydown, blur) that only the renderer could detach; they stay, but act on
-   * the detached panel.
-   */
+  /** End the agent's worker, detach what the shell attached to `container` and outside it, and empty it. */
   dispose(): void;
   /**
    * Ask `question` in a new conversation once the page is ready, after the questions asked before
@@ -525,7 +520,7 @@ export async function mountOrbitBrowser(
   agent.open(opening);
 
   el.model.addEventListener("click", async () => {
-    const picked = await switchProvider(container, brand, offered);
+    const picked = await switchProvider(container, brand, offered, mounted.signal);
     if (picked) {
       const previous = { creds, model: { ...config } };
       creds = picked;
