@@ -275,6 +275,8 @@ describe("a turn", () => {
   it("stops a Galaxy request in flight when the conversation is stopped", async () => {
     let aborted = false;
     const requests: unknown[] = [];
+    // A real fetch keeps its request alive; Node links a request's signal to its source only weakly.
+    const inFlight: Request[] = [];
     vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = input instanceof Request ? input : new Request(String(input), init);
       const url = new URL(request.url);
@@ -283,6 +285,7 @@ describe("a turn", () => {
         return sse({ calls: [{ name: "get_history_details", args: { history_id: "f2c1" } }] });
       }
       if (url.pathname.endsWith("api/histories/f2c1")) {
+        inFlight.push(request);
         return new Promise((_resolve, reject) =>
           request.signal.addEventListener("abort", () => {
             aborted = true;

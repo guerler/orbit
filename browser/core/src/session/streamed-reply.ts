@@ -4,7 +4,7 @@
  * `message_start` (its first partial, which can already hold text, or the whole answer), grows by
  * `message_update`, and ends with the stored answer at `message_end`.
  */
-import type { MessageChange } from "./agent/events";
+import type { MessageChange } from "../agent/events";
 
 type Content = { content: ReadonlyArray<{ type: string; text?: string }> };
 

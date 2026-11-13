@@ -1,10 +1,10 @@
 import type { EntryRecord } from "@earendil-works/pi-durable";
 
-import type { ChatEvent } from "./agent/events";
+import type { ChatEvent } from "../agent/events";
 import { describe, expect, it, vi } from "vitest";
 
-import { DEFAULT_BRAND, followUpMark } from "./agent/brand";
-import { EMPTY_REPLY } from "./agent/markers";
+import { DEFAULT_BRAND, followUpMark } from "../agent/brand";
+import { EMPTY_REPLY } from "../agent/markers";
 
 const FOLLOW_UP_MARK = followUpMark(DEFAULT_BRAND);
 import { ChatView } from "./transcript";
@@ -173,9 +173,7 @@ describe("a live run", () => {
 
   it("reports a background task that failed", () => {
     const { hooks, view: v } = view();
-    v.apply([
-      { type: "task_failed", taskId: 7, kind: "olit.galaxy-watch", message: "boom" } as AgentEvent,
-    ]);
+    v.apply([{ type: "task_failed", kind: "olit.galaxy-watch", message: "boom" } as ChatEvent]);
     expect(hooks.failed).toHaveBeenCalledWith("The olit.galaxy-watch task failed: boom");
   });
 });

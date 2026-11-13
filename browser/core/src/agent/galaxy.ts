@@ -114,7 +114,14 @@ export function galaxyFetch({ key, credentials = "include", signal }: GalaxyOpti
             },
             { serverLabel: "Galaxy" },
           )
-        : await fetch(new Request(request.clone(), { headers, credentials, cache: "no-store" }));
+        : await fetch(
+            new Request(request.clone(), {
+              headers,
+              credentials,
+              cache: "no-store",
+              signal: request.signal,
+            }),
+          );
       // A POST Galaxy already applied would run twice; a rate limit applied nothing.
       const retryable =
         response.status === 429 || (IDEMPOTENT.has(method) && RETRY_STATUS.has(response.status));

@@ -25,4 +25,4 @@ export { usageTotals } from "./agent/saved";
 export { flavoredSkills } from "./agent/skills";
 export { claim, GUARDS, Outcome, rendered } from "./agent/tool";
 export { agentTools } from "./agent/tools";
-export { ChatView } from "./transcript";
+export { ChatView } from "./session/transcript";

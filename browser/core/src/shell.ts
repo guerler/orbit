@@ -10,20 +10,25 @@ import { settlePlanDrafts } from "./plan-drafts";
 import { ChatPanel } from "../../../app/src/renderer/chat/chat-panel";
 import { applyOrbitTheme } from "../../../app/src/renderer/theme";
 
-import { galaxyCanRun, galaxyRefusalMessage } from "./diagnostics";
+import { answerPlan } from "./session/plans";
+import {
+  heldNotice,
+  outcomeNotice,
+  readyNotices,
+  settledNotices,
+  type Notice,
+} from "./session/notices";
 import { buildConfig } from "./config";
 import { saveCredentials } from "./credentials";
 import { ensureCredentials, switchProvider } from "./credentials-modal";
 import { offeredProviders } from "./agent/providers";
-import { ChatView, type RunOutcome } from "./transcript";
+import { ChatView, type RunOutcome } from "./session/transcript";
 
 import { createConfirm } from "./confirm-modal";
 import { DEFAULT_BRAND, type Brand } from "./agent/brand";
 import { AgentClient } from "./agent/client";
 import { briefly, connectGalaxy, type Galaxy } from "./agent/galaxy";
 import type { GalaxyStatus } from "./agent/prompt";
-import { WHAT } from "./agent/markers";
-import type { Settled } from "./agent/watch";
 import type { SessionDocument } from "./agent/saved";
 import {
   kindsWithoutRenderer,
@@ -210,6 +215,10 @@ export async function mountOrbitBrowser(
     return line;
   };
   const retryNotice = createRetryNotice({ addInfoMessage: info });
+  const say = (notice: Notice | undefined) => {
+    if (notice?.level === "error") chat.addErrorMessage(notice.text);
+    else if (notice) info(notice.text);
+  };
 
   // Ask for a provider/key before the worker starts.
   const offered = offeredProviders(!!options.galaxyChatUrl);
@@ -269,17 +278,8 @@ export async function mountOrbitBrowser(
 
   /** Exactly one explanation for a quiet ending, most specific first. */
   function ended(outcome: RunOutcome) {
-    if (outcome.error) {
-      console.error(`[${brand.id}] run failed`, outcome.error);
-      chat.addErrorMessage(briefly(outcome.error));
-    } else if (outcome.aborted) {
-      info("Stopped.");
-    } else if (outcome.exhausted) {
-      // Orbit has no step cap; this one's must not look like completion.
-      info('I ran out of steps for one turn while still working. Say "continue" to pick it up.');
-    } else if (!outcome.spoke && !outcome.done) {
-      info("The model ended the turn without a reply. Ask again, or rephrase.");
-    }
+    if (outcome.error) console.error(`[${brand.id}] run failed`, outcome.error);
+    say(outcomeNotice(outcome));
     if (el.save) el.save.textContent = "Save";
     sessions?.savedState(false);
     refreshControls();
@@ -354,25 +354,6 @@ export async function mountOrbitBrowser(
     };
   }
 
-  function settledOne({ watched: w, state, outcome, record }: Settled) {
-    const what = WHAT[w.kind];
-    if (record) {
-      chat.addErrorMessage(`The record was not updated for ${what} ${w.id}: ${record}.`);
-    }
-    if (outcome === "failed") {
-      chat.addErrorMessage(`${what} ${w.id} finished as ${state}.`);
-    } else if (outcome === "paused") {
-      chat.addErrorMessage(`${what} ${w.id} is paused: it waits on an input that failed.`);
-    } else if (outcome === "unreadable") {
-      chat.addErrorMessage(`${what} ${w.id} is no longer shown by Galaxy (${state}).`);
-    } else if (outcome === "cancelled" || outcome === "skipped") {
-      // Someone chose this; an alarm about it would be the loudest thing in the room.
-      info(`${what} ${w.id} was ${outcome}.`);
-    } else {
-      info(`${what} ${w.id} finished (${state}).`);
-    }
-  }
-
   const opening = {
     pyodideURL: options.pyodideURL,
     config: workerConfig(),
@@ -411,15 +392,9 @@ export async function mountOrbitBrowser(
       }
       refreshControls();
     } else if (message.type === "settled") {
-      settledOne(message.settled);
+      settledNotices(message.settled).forEach(say);
     } else if (message.type === "held") {
-      if (message.held) {
-        info(
-          message.held === "paused"
-            ? "Galaxy results are waiting -- automatic follow-up is paused. Say continue when you're ready."
-            : "Galaxy results are waiting -- automatic follow-up paused after several automatic turns. Say continue to resume.",
-        );
-      }
+      say(heldNotice(message.held));
     } else if (message.type === "confirm") {
       confirm.show(String(message.id), message);
     } else if (message.type === "withdrawn") {
@@ -428,45 +403,18 @@ export async function mountOrbitBrowser(
       ready = true;
       galaxyStatus = message.galaxy;
       refreshControls();
-      if (message.unkept) {
-        chat.addErrorMessage(
-          `This browser can't keep conversations (${message.unkept}), so this one ends when the ` +
-            "page closes." +
-            (sessions?.keepHint ? ` ${sessions.keepHint}` : ""),
-        );
-      }
-      if (message.galaxyProblem) {
-        chat.addErrorMessage(
-          `Galaxy did not answer when this session opened (${message.galaxyProblem}), so no Galaxy tool ` +
-            "can run in this session. Reload once Galaxy is back.",
-        );
-      }
-      if (message.recordsProblem) {
-        chat.addErrorMessage(
-          `Could not look for notebooks on this history (${message.recordsProblem}), so this ` +
-            "starts a new one.",
-        );
-      }
-      if (launch.savedProblem) {
-        chat.addErrorMessage(launch.savedProblem);
-      }
-      if (launch.saved) {
-        info("Opened a saved conversation.");
-      }
-      if (continuing) {
-        info(continuing);
-      }
-      info(
-        launch.saved
-          ? "Ready."
-          : view.turns
-            ? "Restored this history's conversation from this browser. Ready."
-            : "Ready. Ask me to run something.",
-      );
-      if (launch.greeting) {
-        info(launch.greeting);
-      }
-      ask();
+      readyNotices({
+        unkept: message.unkept,
+        galaxyProblem: message.galaxyProblem,
+        recordsProblem: message.recordsProblem,
+        savedProblem: launch.savedProblem,
+        saved: !!launch.saved,
+        restored: view.turns > 0,
+        continuing,
+        greeting: launch.greeting,
+        keepHint: sessions?.keepHint,
+      }).forEach(say);
+      askNext();
     } else if (message.type === "recoverable") {
       // The browser kept nothing of a session here; the user says which, if any, this is.
       const line = info(
@@ -634,27 +582,17 @@ export async function mountOrbitBrowser(
     { signal: mounted.signal },
   );
 
-  // Approve / Edit / Reject on a plan draft card; wording follows loom's handler.
+  // Approve / Edit / Reject on a plan draft card.
   el.messages.addEventListener("plan-draft-action", (e) => {
     const { action, body } = (e as CustomEvent<{ action: string; body: string }>).detail;
-    if (action === "approve") {
-      // loom's init gate refuses /execute when Galaxy cannot run the plan.
-      if (!galaxyCanRun(galaxyStatus)) {
-        chat.addErrorMessage(galaxyRefusalMessage());
-        return;
-      }
-      el.input.value =
-        "I approve the plan above. Show the full parameter table for review before executing.";
+    const answer = answerPlan(action, body, galaxyStatus);
+    if (answer && "refused" in answer) {
+      chat.addErrorMessage(answer.refused);
+    } else if (answer && "send" in answer) {
+      el.input.value = answer.send;
       submit();
-    } else if (action === "reject") {
-      el.input.value = "Reject the plan above — let's rethink it.";
-      submit();
-    } else if (action === "edit") {
-      // Edit hands the draft back for the user to change; it does not submit.
-      el.input.value =
-        "Here is the plan with my edits — please revise your draft accordingly:\n\n```plan\n" +
-        body +
-        "\n```";
+    } else if (answer && "draft" in answer) {
+      el.input.value = answer.draft;
       el.input.focus();
       // Setting .value does not raise `input`, so the box would stay one line tall.
       el.input.dispatchEvent(new Event("input"));
