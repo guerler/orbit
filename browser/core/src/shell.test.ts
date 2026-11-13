@@ -81,6 +81,25 @@ describe("a flavor with no session store", () => {
   });
 });
 
+describe("the files the worker keeps sessions in", () => {
+  async function poolOf(pool?: string) {
+    const worker = fakeWorker();
+    await mountOrbitBrowser(container, {
+      ...base,
+      createWorker: () => worker as unknown as Worker,
+      launch: async () => ({ historyId: "h1" }),
+      ...(pool ? { pool } : {}),
+    });
+    return worker.sent[0]?.request;
+  }
+
+  it("opens the worker on the pool the flavor names, and on none otherwise", async () => {
+    expect(await poolOf("olit-chat")).toMatchObject({ pool: "olit-chat" });
+    container.replaceChildren();
+    expect(await poolOf()).not.toHaveProperty("pool");
+  });
+});
+
 describe("saved sessions in this browser", () => {
   const document = { olit_session: 1, session: {}, entries: [] } as any;
   /** Returns what the worker opens when launching save `id` from store `kind`. */

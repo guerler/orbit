@@ -44,6 +44,7 @@ export function shellOptions(
     createWorker: () => new Worker(new URL("./worker.ts", import.meta.url), { type: "module" }),
     ...OLIT_ARTIFACTS,
     brand: OLIT_BRAND,
+    ...(store.kind === "chat" ? { pool: `${OLIT_BRAND.id}-chat` } : {}),
     launch: (galaxy) => {
       saves = store.connect(galaxy);
       return launch(galaxy, saves, request);

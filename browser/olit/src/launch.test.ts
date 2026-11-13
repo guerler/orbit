@@ -172,3 +172,12 @@ describe("saving through the store", () => {
     expect(report.savedState).toHaveBeenCalledWith(true);
   });
 });
+
+describe("the browser files a mode keeps", () => {
+  it("gives the chat its own pool and leaves other stores on the brand's", () => {
+    const chat = store(async () => null).definition;
+    const visualization = store(async () => null).definition;
+    expect(options({ ...chat, kind: "chat" }, {}).pool).toBe("olit-chat");
+    expect(options({ ...visualization, kind: "visualization" }, {}).pool).toBeUndefined();
+  });
+});
