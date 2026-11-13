@@ -1,6 +1,6 @@
 /** Runs Olit as Galaxy AI's chat, saved to Galaxy's chats. Galaxy mounts it once and sends it commands. */
 import { mountOrbitBrowser, type OrbitBrowserHandle } from "@galaxyproject/orbit-browser";
-import { type ChatCommand, connectChatHost } from "../host";
+import { type ChatCommand, listenToGalaxy, tellHost } from "../host";
 import { type LaunchRequest, shellOptions } from "../launch";
 import { chats } from "../stores/chats";
 import type { OlitMode } from "./mode";
@@ -10,16 +10,27 @@ export const chatMode: OlitMode = {
     let shown: OrbitBrowserHandle | undefined;
     /** Commands run one at a time, in the order Galaxy sent them. */
     let work: Promise<unknown> = Promise.resolve();
-    const host = connectChatHost(incoming.root, (command) => {
+    listenToGalaxy(incoming.root, (command) => {
       work = work.then(() => run(command)).catch(failed);
     });
 
-    /** Last unsaved state sent to Galaxy; only changes are sent. */
+    /** What Galaxy was last told: the chat shown, once known, and whether it has unsaved changes. */
+    let active: string | null | undefined;
     let unsaved: boolean | undefined;
+    function tell() {
+      const config = active === undefined ? {} : { visualization_config: { exchange_id: active } };
+      tellHost({ visualization_saved: !unsaved, ...config }, window);
+    }
     function reportUnsaved(value: boolean) {
       if (value !== unsaved) {
         unsaved = value;
-        host.report({ type: "unsaved", value });
+        tell();
+      }
+    }
+    function reportActive(id: string | null) {
+      if (id !== active) {
+        active = id;
+        tell();
       }
     }
 
@@ -33,7 +44,7 @@ export const chatMode: OlitMode = {
         container,
         shellOptions(incoming, chats, request, {
           savedState: (saved) => reportUnsaved(!saved),
-          active: (id) => host.report({ type: "active", exchange_id: id }),
+          active: reportActive,
         }),
       );
     }
