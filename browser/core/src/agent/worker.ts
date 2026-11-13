@@ -30,6 +30,7 @@ export interface OpenRequest {
   saved?: { id: string; document: SessionDocument };
   /** Take the conversation over from the tab that has it open. */
   steal?: boolean;
+  pool?: string;
 }
 
 /** Why follow-ups are waiting for the user, when they are. */
@@ -180,7 +181,8 @@ async function open(request: OpenRequest) {
   let storage: Storage = new MemoryStorage();
   if (user !== undefined) {
     // The file pool is one per origin, whichever Galaxy user opens it, so the tab lock is too.
-    await holdStorage(`${brand.id}:storage`, {
+    const pool = request.pool ?? brand.id;
+    await holdStorage(`${pool}:storage`, {
       steal: request.steal,
       waiting: () => post({ type: "waiting" }),
       // Ending the worker lets go of the files it holds open, which the other tab needs.
@@ -189,7 +191,7 @@ async function open(request: OpenRequest) {
         self.close();
       },
     });
-    ({ storage, unkept } = await openStorage(`${brand.id}-${user}`, brand.id));
+    ({ storage, unkept } = await openStorage(`${pool}-${user}`, pool));
   }
   runtime = await Runtime.open({
     storage,

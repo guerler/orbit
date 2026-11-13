@@ -105,6 +105,7 @@ export interface OrbitBrowserOptions {
   sessions?: SessionStore;
   /** The same brand as the flavor's worker, whose stored state the page reads under it. */
   brand?: Brand;
+  pool?: string;
 }
 
 /** The mounted page, as its host sees it. */
@@ -372,6 +373,7 @@ export async function mountOrbitBrowser(
     pyodideURL: options.pyodideURL,
     config: workerConfig(),
     placement: { historyId: launch.historyId, datasetId: config.dataset_id },
+    ...(options.pool ? { pool: options.pool } : {}),
     ...(launch.saved ? { saved: { ...launch.saved, id: keptAs(launch.saved.id) } } : {}),
   };
 
