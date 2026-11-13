@@ -256,38 +256,37 @@ const escapeAttr = (text) =>
 // saved visualization. With `view=chat`, the plugin is mounted as the chat with `{ view: "chat" }`
 // plus `exchange_id` or `question`.
 /**
- * Host page that hosts the plugin as Galaxy AI's chat, as Galaxy's AiChatBrain does: one frame, a
- * port handed into it once it says ready, and commands over that port in order. Counts the frame's
- * workers and page loads, and can send a command from another frame.
+ * Host page that hosts the plugin as Galaxy AI's chat, as Galaxy's AiChatBrain does: one frame whose
+ * Charts messages, posted to its own window at Galaxy's origin, are its reports, the first saying it is
+ * ready; commands go into the frame at Galaxy's origin, in order, once it is. Counts the frame's workers
+ * and page loads, and can send a command from another frame.
  */
 function galaxyAi(config) {
     return [
         "  const config = " + JSON.stringify(config) + ";",
-        "  const record = (window.__galaxyAi = { mounts: [config], reports: [], charts: [], workers: 0 });",
+        "  const record = (window.__galaxyAi = { mounts: [config], reports: [], workers: 0 });",
         "  const frame = document.getElementById('galaxy_visualization');",
         "  const queue = [];",
-        "  let port;",
-        "  const deliver = () => { while (port && queue.length) port.postMessage({ channel: 'galaxy-ai', ...queue.shift() }); };",
-        "  window.addEventListener('message', (event) => {",
+        "  let ready = false, active, unsaved;",
+        "  const deliver = () => { while (ready && queue.length) frame.contentWindow.postMessage({ from: 'galaxy', ...queue.shift() }, window.location.origin); };",
+        "  frame.contentWindow.addEventListener('message', (event) => {",
         "    const m = event.data;",
-        "    const fromFrame = event.source === frame.contentWindow || event.source === window;",
-        "    if (!fromFrame || event.origin !== window.location.origin) return;",
-        "    if (m?.from === 'galaxy-visualization') record.charts.push(m);",
-        "    if (m?.channel === 'galaxy-ai' && m.type === 'ready' && !port) {",
-        "      const channel = new MessageChannel();",
-        "      port = channel.port1;",
-        "      port.onmessage = (e) => record.reports.push(e.data);",
-        "      frame.contentWindow.postMessage({ channel: 'galaxy-ai', type: 'connect' }, window.location.origin, [channel.port2]);",
-        "      record.reports.push({ type: 'ready' });",
-        "      deliver();",
+        "    if (m?.from !== 'galaxy-visualization' || event.origin !== window.location.origin) return;",
+        "    if (!ready) { ready = true; record.reports.push({ type: 'ready' }); }",
+        "    if (typeof m.visualization_saved === 'boolean' && !m.visualization_saved !== unsaved) {",
+        "      unsaved = !m.visualization_saved;",
+        "      record.reports.push({ type: 'unsaved', value: unsaved });",
         "    }",
+        "    const id = m.visualization_config?.exchange_id;",
+        "    if (id !== undefined && id !== active) { active = id; record.reports.push({ type: 'active', exchange_id: id }); }",
+        "    deliver();",
         "  });",
         "  window.__command = (command) => { queue.push(command); deliver(); };",
         "  window.__foreign = (command) => {",
         "    const other = document.body.appendChild(document.createElement('iframe'));",
         "    other.style.display = 'none';",
-        "    const message = { channel: 'galaxy-ai', ...command };",
-        "    other.contentWindow.Function('target', 'message', \"target.postMessage(message, '*'); target.postMessage({ channel: 'galaxy-ai', type: 'connect' }, '*', [new MessageChannel().port2]);\")(frame.contentWindow, message);",
+        "    const message = { from: 'galaxy', ...command };",
+        "    other.contentWindow.Function('target', 'message', \"target.postMessage(message, '*');\")(frame.contentWindow, message);",
         "  };",
         "  const view = frame.contentWindow;",
         "  const Worker = view.Worker;",

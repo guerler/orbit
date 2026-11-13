@@ -1,5 +1,5 @@
-// Tests Olit as Galaxy AI's chat on the stub's host page, which hosts it as Galaxy does: one frame,
-// a port handed in once it says ready, and commands over that port in order.
+// Tests Olit as Galaxy AI's chat on the stub's host page, which hosts it as Galaxy does: one frame
+// whose Charts messages are its reports, and commands into it in order once it has sent one.
 // Covers: its reports, asking without a reload or a new worker, opening a chat without a reload,
 // commands in order, a question during an answer, refusing commands from another frame, and
 // artifacts in the chat's own pane. BROWSER=firefox or webkit runs it there; the mid-answer part is
@@ -66,11 +66,10 @@ const ready = (frame) =>
     const text = () => frame.locator("#messages").innerText();
 
     check("the chat boots", await ready(frame));
-    check("it says ready and is handed a port", (await reports("ready")).length === 1, JSON.stringify((await host()).reports));
+    check("its first message says it is ready", (await reports("ready")).length === 1, JSON.stringify((await host()).reports));
     check("it reports a new chat, unchanged",
         await until(async () => (await last("active"))?.exchange_id === null && (await last("unsaved"))?.value === false),
         JSON.stringify((await host()).reports));
-    check("it sends no Charts messages as the chat", (await host()).charts.length === 0, JSON.stringify((await host()).charts));
 
     await command({ type: "ask", question: "remember this" });
     check("an asked question is answered",
@@ -134,7 +133,7 @@ const ready = (frame) =>
         await fetch(`${STUB}/__script?name=plain`);
     }
 
-    // Commands only come over Galaxy's port: another frame is ignored.
+    // Commands only come from Galaxy's page: another frame is ignored.
     const asked = (await host()).reports.length;
     await page.evaluate(() => window.__foreign({ type: "ask", question: "from another frame" }));
     await new Promise((r) => setTimeout(r, 3000));
