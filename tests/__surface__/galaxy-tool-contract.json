@@ -61,7 +61,6 @@
     "get_visualization_options",
     "gtn_fetch",
     "gtn_search",
-    "lineage_report",
     "list_jobs",
     "list_visualizations",
     "notebook_resume",

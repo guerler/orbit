@@ -549,17 +549,6 @@
     "destructiveWhen": false
   },
   {
-    "name": "lineage_report",
-    "capability": "read",
-    "requires": [
-      "read"
-    ],
-    "settled": false,
-    "polls": null,
-    "destructive": false,
-    "destructiveWhen": false
-  },
-  {
     "name": "organize_datasets",
     "capability": "write",
     "requires": [

@@ -60,7 +60,7 @@ core/                     @galaxyproject/orbit-browser, TypeScript source behind
     guards.ts destructive.ts sra-gate.ts   what can refuse a call
     prompt.ts skills.ts notebook.ts   the system prompt, SKILL.md routers, the record page
     python.ts python-realm.js python-node.ts   `run_python` and the realm Pyodide runs in
-    processes/                deterministic procedures (lineage_report, organize_datasets)
+    processes/                deterministic procedures (organize_datasets)
     skills/                   own/notebook, the brand's own skills, and galaxy-skills copied in
                               at build time
     describe.ts               what the agent publishes about itself, for an outside evaluator

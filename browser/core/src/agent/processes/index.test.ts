@@ -29,20 +29,13 @@ const plain = (overrides: Partial<Process>): Process => ({
 
 describe("process tools", () => {
   it("advertises every process exactly once, sorted by name", () => {
-    expect(processTools().map((t) => t.name)).toEqual(["lineage_report", "organize_datasets"]);
+    expect(processTools().map((t) => t.name)).toEqual(["organize_datasets"]);
   });
 
   it("requires a process's declared inputs", () => {
     const fn = params(tools().organize_datasets);
     expect(fn.required).toEqual(["history_id"]);
     expect(fn.properties).toHaveProperty("collection_name");
-  });
-
-  it("keeps lineage's optional numbers optional", () => {
-    const fn = params(tools().lineage_report);
-    expect([...fn.required].sort()).toEqual(["dataset_id", "history_id"]);
-    expect(fn.properties.depth.type).toBe("integer");
-    expect(fn.properties.limit.type).toBe("integer");
   });
 
   it("makes an array input an array of strings", () => {
@@ -56,7 +49,6 @@ describe("process tools", () => {
     const props = params(tools().organize_datasets).properties;
     expect(props.structure.description).toContain('Defaults to "auto".');
     expect(props.collection_name.description).toBe('Defaults to "Collection".');
-    expect(params(tools().lineage_report).properties.depth.description).toBe("Defaults to 4.");
   });
 
   it("carries when_to_use in the description", () => {
@@ -117,7 +109,6 @@ describe("least privilege", () => {
 
   it("gives each tool the strongest capability its process declares", () => {
     expect(tools().organize_datasets.capability).toBe("write");
-    expect(tools().lineage_report.capability).toBe("read");
     expect(
       processTools()
         .filter((t) => t.capability === "write")
@@ -168,21 +159,23 @@ describe("organize_datasets as a tool", () => {
   });
 });
 
-describe("lineage_report as a tool", () => {
-  it("routes its diagram to the shell and leaves a reference with the hint", async () => {
-    const paths: string[] = [];
-    const graph = { nodes: [{ src: "hda", id: "d1", name: "out" }], edges: [], truncated: {} };
-    const ctx = context({ get: async (path: string) => (paths.push(path), graph) });
-    const out = JSON.parse(
-      (await call(tools().lineage_report, { history_id: "h1", dataset_id: "d1" }, ctx)).text,
-    );
-    expect(paths).toEqual([
-      "api/histories/h1/graph?seed_src=hda&seed_id=d1&direction=backward&depth=4&limit=200",
+describe("a process that draws an artifact", () => {
+  it("routes the artifact to the shell and leaves a reference with the hint", async () => {
+    const [tool] = processTools([
+      plain({
+        run: async () => ({
+          artifact: { kind: "mermaid", title: "Steps", diagram: "graph TD; a-->b" },
+        }),
+      }),
     ]);
-    expect(out.artifact).toEqual({ kind: "mermaid", title: "Dataset lineage" });
+    const ctx = context();
+    const out = JSON.parse((await call(tool, {}, ctx)).text);
+    expect(out.artifact).toEqual({ kind: "mermaid", title: "Steps" });
     expect(out.hint).toBe(PANE_ONLY_HINT);
     expect(out.ok).toBe(true);
-    expect(ctx.artifacts.produced[0]).toMatchObject({ kind: "mermaid" });
-    expect((ctx.artifacts.produced[0] as { diagram: string }).diagram).toContain('hda_d1["*out"]');
+    expect(ctx.artifacts.produced[0]).toMatchObject({
+      kind: "mermaid",
+      diagram: "graph TD; a-->b",
+    });
   });
 });

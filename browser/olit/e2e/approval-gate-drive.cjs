@@ -3,7 +3,7 @@
 // With Galaxy unreachable, Olit does not start, so nothing reaches the model; this is asserted
 // by counting calls on the far side, not by trusting the UI.
 //
-// The catalog takes no part in that decision: it gates lineage_report, organize_datasets and
+// The catalog takes no part in that decision: it gates organize_datasets and
 // charting, and no Galaxy tool reads it. So a plan is approved both when nothing has asked for
 // the catalog and after the catalog has been asked for and failed.
 const { chromium } = require("playwright");
