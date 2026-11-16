@@ -158,7 +158,10 @@ describe("the composed tools", () => {
     const { result } = await turn([
       {
         calls: [
-          { name: "run_tool", args: { history_id: "h1", tool_id: "lineage_report", inputs: {} } },
+          {
+            name: "run_tool",
+            args: { history_id: "h1", tool_id: "organize_datasets", inputs: {} },
+          },
         ],
       },
       {
@@ -167,7 +170,7 @@ describe("the composed tools", () => {
         ],
       },
       { calls: [{ name: "search_tools_by_name", args: { query: "vega_dataset" } }] },
-      { calls: [{ name: "search_tools_by_name", args: { query: "lineage_report" } }] },
+      { calls: [{ name: "search_tools_by_name", args: { query: "organize_datasets" } }] },
       { text: "ok" },
     ]);
     await expect(pretty(results(result.entries))).toMatchFileSnapshot(

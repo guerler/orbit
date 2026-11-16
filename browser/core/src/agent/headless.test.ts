@@ -233,14 +233,17 @@ describe("a turn", () => {
     const { result } = await turn([
       {
         calls: [
-          { name: "run_tool", args: { history_id: "h1", tool_id: "lineage_report", inputs: {} } },
+          {
+            name: "run_tool",
+            args: { history_id: "h1", tool_id: "organize_datasets", inputs: {} },
+          },
         ],
       },
-      { calls: [{ name: "search_tools_by_name", args: { query: "lineage_report" } }] },
+      { calls: [{ name: "search_tools_by_name", args: { query: "organize_datasets" } }] },
       { text: "ok" },
     ]);
     const [first, second] = results(result.entries).map((m) => contentText(m.content));
-    expect(first).toContain("'lineage_report' is a built-in tool, not a Galaxy tool");
+    expect(first).toContain("'organize_datasets' is a built-in tool, not a Galaxy tool");
     expect(second).toContain("the tool catalog does not hold it");
   });
 

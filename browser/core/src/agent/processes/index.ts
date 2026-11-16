@@ -1,13 +1,12 @@
 import { isKind, pageWriter } from "../../artifacts/kinds";
 import { quote } from "../quote";
 import { claim, Outcome, type Capability, type AgentTool } from "../tool";
-import { lineageReport } from "./lineage-report";
 import { organizeDatasets } from "./organize-datasets";
 import { type Process } from "./process";
 
 export type { Process } from "./process";
 
-export const PROCESSES: Process[] = [lineageReport, organizeDatasets];
+export const PROCESSES: Process[] = [organizeDatasets];
 
 export const ARTIFACT_HINT =
   "This artifact is already displayed to the user and is not a history dataset, " +

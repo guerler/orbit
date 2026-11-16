@@ -2001,41 +2001,6 @@
     {
       "type": "function",
       "function": {
-        "name": "lineage_report",
-        "description": "Reconstruct a dataset's upstream provenance and render it as a flowchart. Use when the user asks how a dataset was made, its lineage, provenance, or the steps that produced it.",
-        "parameters": {
-          "type": "object",
-          "properties": {
-            "history_id": {
-              "type": "string"
-            },
-            "dataset_id": {
-              "type": "string",
-              "description": "Encoded id of the dataset whose provenance is wanted; the graph is walked backward from it."
-            },
-            "depth": {
-              "type": "integer",
-              "description": "Defaults to 4."
-            },
-            "limit": {
-              "type": "integer",
-              "description": "Defaults to 200."
-            },
-            "src": {
-              "type": "string",
-              "description": "Node type of dataset_id: 'hda' for a dataset, 'hdca' for a collection. Defaults to \"hda\"."
-            }
-          },
-          "required": [
-            "history_id",
-            "dataset_id"
-          ]
-        }
-      }
-    },
-    {
-      "type": "function",
-      "function": {
         "name": "organize_datasets",
         "description": "Group loose datasets in a history into a collection, tag it, and set their datatype. Use when the user asks to organise, group, or collect loose datasets in a history, to build a collection from files that arrived separately, or to tag or set the datatype of a set of datasets.",
         "parameters": {
