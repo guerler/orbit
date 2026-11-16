@@ -133,6 +133,65 @@ const copyPyodide: Plugin = {
   },
 };
 
+const LICENSE_FILE = /^(licen[cs]e|copying)/i;
+
+function packageOf(file: string): { dir: string; pkg: Record<string, string> } | undefined {
+  let dir = path.dirname(file);
+  let found: { dir: string; pkg: Record<string, string> } | undefined;
+  while (!found && dir.includes("node_modules")) {
+    const manifest = path.join(dir, "package.json");
+    const pkg = fs.existsSync(manifest) ? JSON.parse(fs.readFileSync(manifest, "utf8")) : {};
+    if (pkg.name) found = { dir, pkg };
+    else dir = path.dirname(dir);
+  }
+  return found;
+}
+
+const workerLicenses: Plugin = {
+  name: "orbit-browser-worker-licenses",
+  generateBundle(_options, bundle) {
+    const entries = new Map<string, string>();
+    for (const chunk of Object.values(bundle)) {
+      for (const id of chunk.type === "chunk" ? chunk.moduleIds : []) {
+        const found = id.startsWith("\0") ? undefined : packageOf(id);
+        if (found) {
+          const { name, version, license } = found.pkg;
+          const file = fs.readdirSync(found.dir).find((f) => LICENSE_FILE.test(f));
+          const text = file
+            ? `\n${fs.readFileSync(path.join(found.dir, file), "utf8").trim()}\n`
+            : "";
+          entries.set(
+            `${name}@${version}`,
+            `\n## ${name} - ${version}${license ? ` (${license})` : ""}\n${text}`,
+          );
+        }
+      }
+    }
+    const listed = [...entries.keys()].sort().map((key) => entries.get(key));
+    this.emitFile({
+      type: "asset",
+      fileName: "THIRD_PARTY_LICENSES.worker.md",
+      source: `# Licenses\n\nThe worker bundles dependencies which contain the following licenses:\n${listed.join("")}`,
+    });
+  },
+};
+
+const LICENSES = fileURLToPath(new URL("./licenses", import.meta.url));
+const FONTS = fileURLToPath(new URL("../../app/src/renderer/assets/fonts", import.meta.url));
+const ES_TOOLKIT = path.dirname(createRequire(import.meta.url).resolve("es-toolkit/package.json"));
+
+const copyLicenses: Plugin = {
+  name: "orbit-browser-licenses-copy",
+  writeBundle(options) {
+    const dest = path.join(options.dir!, "licenses");
+    fs.cpSync(LICENSES, dest, { recursive: true });
+    for (const font of ["inter", "jetbrains-mono"]) {
+      fs.copyFileSync(path.join(FONTS, font, "OFL.txt"), path.join(dest, `${font}-OFL.txt`));
+    }
+    fs.copyFileSync(path.join(ES_TOOLKIT, "NOTICE"), path.join(dest, "es-toolkit-NOTICE"));
+  },
+};
+
 /** Pyodide's files as they are, as Galaxy serves them: the dev server would transform its scripts. */
 const servePyodide = (flavorRoot: string): Plugin => ({
   name: "orbit-browser-pyodide",
@@ -183,6 +242,7 @@ export function orbitBrowserVite({
       // Beside where the dev server serves Pyodide from, whatever directory Vite runs in.
       outDir: path.resolve(flavorRoot, "static"),
       emptyOutDir: true,
+      license: { fileName: "THIRD_PARTY_LICENSES.md" },
       rollupOptions: {
         output: {
           manualChunks: () => "app.js",
@@ -193,7 +253,7 @@ export function orbitBrowserVite({
       },
     },
     define: command === "build" ? defines() : defines(env),
-    plugins: command === "build" ? [copyPyodide] : [servePyodide(flavorRoot)],
+    plugins: command === "build" ? [copyPyodide, copyLicenses] : [servePyodide(flavorRoot)],
     resolve: {
       // Orbit's chat UI is imported from ../app/src/renderer, where a bare import would look for
       // app/'s or the repo root's node_modules. Those aren't installed when only browser/ is, and
@@ -233,6 +293,7 @@ export function orbitBrowserVite({
     },
     worker: {
       format: "es",
+      plugins: () => [workerLicenses],
       // One file: WebKit runs a worker's entry module again when a chunk imports from it, and
       // the second copy takes over the worker's messages without its state.
       rollupOptions: { output: { codeSplitting: false } },
