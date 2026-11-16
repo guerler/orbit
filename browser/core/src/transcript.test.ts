@@ -1,4 +1,6 @@
-import type { AgentEvent, EntryRecord } from "@earendil-works/pi-durable";
+import type { EntryRecord } from "@earendil-works/pi-durable";
+
+import type { ChatEvent } from "./agent/events";
 import { describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_BRAND, followUpMark } from "./agent/brand";
@@ -53,16 +55,14 @@ const result = (isError: boolean, toolName = "get_tool_details", text = DISCARDE
     timestamp: 0,
   });
 
-const snapshot = (entries: EntryRecord[]): AgentEvent =>
+const snapshot = (entries: EntryRecord[]): ChatEvent =>
   ({
     type: "snapshot",
     entries,
-    tools: [],
-    compactions: [],
-    inbox: [],
+    inbox: 0,
     agent: {},
     usage: { models: {}, tools: {} },
-  }) as unknown as AgentEvent;
+  }) as unknown as ChatEvent;
 
 describe("a restored conversation renders a step the way it ended", () => {
   it("shows a failed step as failed, from the outcome the message records", () => {
@@ -110,16 +110,16 @@ describe("a live run", () => {
       stopReason: "stop",
     });
     v.apply([
-      { type: "run_start", inputs: [] } as unknown as AgentEvent,
+      { type: "run_start", inputs: [] } as unknown as ChatEvent,
       {
         type: "message_update",
         changes: [{ type: "text_delta", contentIndex: 0, delta: "Hel" }],
-      } as unknown as AgentEvent,
+      } as unknown as ChatEvent,
       {
         type: "message_update",
         changes: [{ type: "text_delta", contentIndex: 0, delta: "lo." }],
-      } as unknown as AgentEvent,
-      { type: "message_end", entry: answer } as AgentEvent,
+      } as unknown as ChatEvent,
+      { type: "message_end", entry: answer } as ChatEvent,
     ]);
     expect(chat.startAssistantMessage).toHaveBeenCalledTimes(1);
     expect(chat.appendDelta.mock.calls).toEqual([["Hel"], ["lo."]]);
@@ -136,27 +136,29 @@ describe("a live run", () => {
       errorMessage: "429 Too Many Requests",
     });
     v.apply([
-      { type: "run_start", inputs: [] } as unknown as AgentEvent,
-      { type: "message_end", entry: failed } as AgentEvent,
+      { type: "run_start", inputs: [] } as unknown as ChatEvent,
+      { type: "message_end", entry: failed } as ChatEvent,
     ]);
     expect(v.outcome).toMatchObject({ spoke: false, error: "429 Too Many Requests" });
   });
 
   const unanswered = (reason: string, detail?: string) =>
     ({
-      type: "submission",
-      record: { id: 1, type: "input", status: "unanswered", reason, detail },
-    }) as unknown as AgentEvent;
+      type: "unanswered",
+      inputs: [1],
+      reason,
+      detail,
+    }) as unknown as ChatEvent;
 
   it("says why a message went unanswered rather than that the model kept quiet", () => {
     const { view: v } = view();
     v.apply([
-      { type: "run_start", inputs: [] } as unknown as AgentEvent,
+      { type: "run_start", inputs: [] } as unknown as ChatEvent,
       unanswered("faulted", "host.watched raised"),
     ]);
     expect(v.outcome.error).toBe("Answering failed: host.watched raised");
     v.apply([
-      { type: "run_start", inputs: [] } as unknown as AgentEvent,
+      { type: "run_start", inputs: [] } as unknown as ChatEvent,
       unanswered("model_error", "context overflow"),
     ]);
     expect(v.outcome.error).toBe("The model request failed: context overflow");
@@ -164,16 +166,14 @@ describe("a live run", () => {
 
   it("keeps a Stop and a spent turn budget as their own endings", () => {
     const { view: v } = view();
-    v.apply([{ type: "run_start", inputs: [] } as unknown as AgentEvent, unanswered("aborted")]);
+    v.apply([{ type: "run_start", inputs: [] } as unknown as ChatEvent, unanswered("aborted")]);
     expect(v.outcome).toMatchObject({ aborted: true });
     expect(v.outcome.error).toBeUndefined();
   });
 
   it("reports a background task that failed", () => {
     const { hooks, view: v } = view();
-    v.apply([
-      { type: "task_failed", taskId: 7, kind: "olit.galaxy-watch", message: "boom" } as AgentEvent,
-    ]);
+    v.apply([{ type: "task_failed", kind: "olit.galaxy-watch", message: "boom" } as ChatEvent]);
     expect(hooks.failed).toHaveBeenCalledWith("The olit.galaxy-watch task failed: boom");
   });
 });
@@ -217,25 +217,25 @@ describe("a run drawn live and the same run restored", () => {
   it("shows the user the same conversation either way", () => {
     const live = view();
     live.view.apply([
-      { type: "run_start", inputs: [] } as unknown as AgentEvent,
-      { type: "message_end", entry: asked } as AgentEvent,
-      { type: "message_end", entry: calling } as AgentEvent,
+      { type: "run_start", inputs: [] } as unknown as ChatEvent,
+      { type: "message_end", entry: asked } as ChatEvent,
+      { type: "message_end", entry: calling } as ChatEvent,
       {
         type: "tool_execution_start",
         toolCallId: "c1",
         toolName: "get_tool_details",
-      } as AgentEvent,
-      { type: "message_end", entry: stepped } as AgentEvent,
+      } as ChatEvent,
+      { type: "message_end", entry: stepped } as ChatEvent,
       {
         type: "message_update",
         changes: [{ type: "text_delta", contentIndex: 0, delta: "There are " }],
-      } as unknown as AgentEvent,
+      } as unknown as ChatEvent,
       {
         type: "message_update",
         changes: [{ type: "text_delta", contentIndex: 0, delta: "12 rows." }],
-      } as unknown as AgentEvent,
-      { type: "message_end", entry: answered } as AgentEvent,
-      { type: "run_end" } as unknown as AgentEvent,
+      } as unknown as ChatEvent,
+      { type: "message_end", entry: answered } as ChatEvent,
+      { type: "run_end" } as unknown as ChatEvent,
     ]);
     const restored = view();
     restored.view.apply([snapshot([asked, calling, stepped, answered])]);
@@ -252,20 +252,20 @@ describe("a run drawn live and the same run restored", () => {
     const again = user("count them again");
     const live = view();
     live.view.apply([
-      { type: "run_start", inputs: [] } as unknown as AgentEvent,
-      { type: "message_end", entry: asked } as AgentEvent,
-      { type: "message_end", entry: calling } as AgentEvent,
-      { type: "message_end", entry: stepped } as AgentEvent,
-      { type: "message_end", entry: answered } as AgentEvent,
-      { type: "run_end" } as unknown as AgentEvent,
-      { type: "run_start", inputs: [] } as unknown as AgentEvent,
-      { type: "message_end", entry: again } as AgentEvent,
-      { type: "message_end", entry: calling } as AgentEvent,
+      { type: "run_start", inputs: [] } as unknown as ChatEvent,
+      { type: "message_end", entry: asked } as ChatEvent,
+      { type: "message_end", entry: calling } as ChatEvent,
+      { type: "message_end", entry: stepped } as ChatEvent,
+      { type: "message_end", entry: answered } as ChatEvent,
+      { type: "run_end" } as unknown as ChatEvent,
+      { type: "run_start", inputs: [] } as unknown as ChatEvent,
+      { type: "message_end", entry: again } as ChatEvent,
+      { type: "message_end", entry: calling } as ChatEvent,
       {
         type: "tool_execution_start",
         toolCallId: "c1",
         toolName: "get_tool_details",
-      } as AgentEvent,
+      } as ChatEvent,
     ]);
     expect(live.chat.addToolCard).toHaveBeenCalledTimes(2);
     const restored = view();
@@ -276,7 +276,7 @@ describe("a run drawn live and the same run restored", () => {
 
 describe("a reply streamed live ends as the stored answer reads", () => {
   const update = (...changes: unknown[]) =>
-    ({ type: "message_update", usage: {}, changes }) as unknown as AgentEvent;
+    ({ type: "message_update", usage: {}, changes }) as unknown as ChatEvent;
   const stored = (text: string) =>
     entry("pi.assistant", {
       role: "assistant",
@@ -290,13 +290,13 @@ describe("a reply streamed live ends as the stored answer reads", () => {
     const { chat, view: v } = view();
     const partial = { role: "assistant", content: [{ type: "text", text: "The **Plotly " }] };
     v.apply([
-      { type: "run_start", inputs: [] } as unknown as AgentEvent,
-      { type: "message_start", message: partial } as unknown as AgentEvent,
+      { type: "run_start", inputs: [] } as unknown as ChatEvent,
+      { type: "message_start", message: partial } as unknown as ChatEvent,
       update({ type: "text_delta", contentIndex: 0, delta: "scatter** is saved." }),
       {
         type: "message_end",
         entry: stored("The **Plotly scatter** is saved. Done."),
-      } as AgentEvent,
+      } as ChatEvent,
     ]);
     expect(shownText(chat)).toBe("The **Plotly scatter** is saved. Done.");
     expect(chat.startAssistantMessage).toHaveBeenCalledTimes(1);
@@ -305,9 +305,9 @@ describe("a reply streamed live ends as the stored answer reads", () => {
   it("finishes with what the stored answer holds beyond what streamed", () => {
     const { chat, view: v } = view();
     v.apply([
-      { type: "run_start", inputs: [] } as unknown as AgentEvent,
+      { type: "run_start", inputs: [] } as unknown as ChatEvent,
       update({ type: "text_delta", contentIndex: 0, delta: "Cut " }),
-      { type: "message_end", entry: stored("Cut off no longer.") } as AgentEvent,
+      { type: "message_end", entry: stored("Cut off no longer.") } as ChatEvent,
     ]);
     expect(shownText(chat)).toBe("Cut off no longer.");
     expect(chat.startAssistantMessage).toHaveBeenCalledTimes(1);

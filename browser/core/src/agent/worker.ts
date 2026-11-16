@@ -2,8 +2,6 @@ import {
   LiveDoc,
   MemoryStorage,
   type Storage,
-  watchEvents,
-  type AgentEvent,
   type Conversation,
   type ConversationId,
   type TaskId,
@@ -14,7 +12,8 @@ import { Binding, FollowUps, heldBy } from "./documents";
 import { connectGalaxy } from "./galaxy";
 import type { GalaxyStatus } from "./prompt";
 import { browserPython } from "./python";
-import { context, drawnEvents, Runtime, type Placement, type RuntimeConfig } from "./runtime";
+import { watchChat, type ChatEvent } from "./events";
+import { context, Runtime, type Placement, type RuntimeConfig } from "./runtime";
 import type { SessionDocument } from "./saved";
 import type { RecordSummary } from "./notebook";
 import { DEFAULT_BRAND } from "./brand";
@@ -51,7 +50,7 @@ export type WorkerMessage =
     }
   /** No session kept here, but the launch history has records of this brand to choose from. */
   | { type: "recoverable"; records: RecordSummary[] }
-  | { type: "events"; events: readonly AgentEvent[] }
+  | { type: "events"; events: readonly ChatEvent[] }
   /** Galaxy work the conversation watched has settled. */
   | { type: "settled"; settled: Settled }
   | { type: "held"; held: Waiting }
@@ -129,10 +128,10 @@ async function attach(next: Conversation) {
   conversation = next;
   held = undefined;
   const harness = runtime!.harness;
-  const stream = await watchEvents(harness, next.id, context);
-  post({ type: "events", events: await drawnEvents(next, [stream.snapshot], context) });
+  const stream = await watchChat(harness, next, context);
+  post({ type: "events", events: [stream.snapshot] });
   stream.start(async (events) => {
-    post({ type: "events", events: await drawnEvents(next, events, context) });
+    post({ type: "events", events });
     if (events.some((e) => e.type === "run_end")) decline(next.id);
     await postHeld();
   });
@@ -142,13 +141,23 @@ async function attach(next: Conversation) {
       .filter((t) => t.kind === WATCH_TASK && t.conversationId === next.id)
       .map((t) => t.id);
   let known = new Set<TaskId>(watched(graph.value.tasks));
-  graph.start(async (value) => {
-    const now = new Set<TaskId>(watched(value.tasks));
+  graph.start(async (call) => {
+    if (call.kind !== "value") return;
+    const now = new Set<TaskId>(watched(call.value.tasks));
     for (const id of known) {
       if (now.has(id)) continue;
       const outcome = (await harness.getTask(id, context))?.state;
       if (outcome?.status === "terminal" && outcome.outcome.status === "completed") {
         post({ type: "settled", settled: outcome.outcome.result as unknown as Settled });
+      } else if (
+        outcome?.status === "terminal" &&
+        (outcome.outcome.status === "faulted" || outcome.outcome.status === "orphaned")
+      ) {
+        const message =
+          outcome.outcome.status === "faulted"
+            ? outcome.outcome.error.message
+            : outcome.outcome.reason;
+        post({ type: "events", events: [{ type: "task_failed", kind: WATCH_TASK, message }] });
       }
     }
     known = now;
@@ -157,7 +166,7 @@ async function attach(next: Conversation) {
   });
   await postHeld();
   detach = async () => {
-    await stream.stop();
+    stream.stop();
     await graph.stop();
   };
 }

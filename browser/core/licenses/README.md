@@ -15,7 +15,7 @@ that carries no licence file of its own. Refetch a file when its component's ver
 | `numpy-dragon4-NOTICE` | github.com/numpy/numpy `numpy/_core/src/multiarray/dragon4.c` header | v2.2.5 | dragon4 in the numpy wheel |
 | `numpy-pocketfft-LICENSE.md` | github.com/mreineck/pocketfft `LICENSE.md` | `33ae5dc` (numpy v2.2.5 submodule) | pocketfft in the numpy wheel |
 | `pandas-*` | github.com/pandas-dev/pandas `LICENSES/` | v2.3.3 | code vendored into the pandas wheel |
-| `pi-LICENSE` | github.com/earendil-works/pi `LICENSE` | main | pi-ai, pi-durable, chord |
+| `pi-LICENSE` | github.com/earendil-works/pi `LICENSE` | main | pi-ai, pi-durable, pi-schema, pi-telemetry, chord |
 | `galaxy-mcp-LICENSE` | github.com/galaxyproject/galaxy-mcp `LICENSE` | main | galaxy-ops |
 | `sqlite-wasm-LICENSE.md` | github.com/sqlite/sqlite-wasm `LICENSE.md` | main | sqlite-wasm |
 | `standard-webhooks-LICENSE` | github.com/standard-webhooks/standard-webhooks `libraries/LICENSE` | `b4d2c14` (npm 1.1.1) | standardwebhooks |

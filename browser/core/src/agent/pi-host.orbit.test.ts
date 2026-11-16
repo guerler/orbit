@@ -422,14 +422,14 @@ beforeAll(async () => {
     {
       models,
       registry,
-      settings: { ...LOOP, maxTurns: 6 },
+      settings: LOOP,
       onReport: (e) =>
         notes.push({ kind: "handler-error", event: "report", error: e, phase: ledger.phase }),
     },
     ctx,
   );
   conversation = await harness.createConversation(
-    { ownership: { kind: "ownerless" }, agent: { model } },
+    { ownership: { kind: "ownerless" }, agent: { model, maxTurns: 6 } },
     ctx,
   );
   await host.attach(harness, conversation, ctx);
@@ -676,10 +676,7 @@ describe("Orbit on pi-host", () => {
     expect(fetched).toContain("collection");
   });
 
-  it("validates a @sinclair/typebox schema strictly, as Orbit does today", async () => {
-    // Orbit's 0.34 schema carries Symbol.for("TypeBox.Kind"), so pi-ai skips its own JSON-schema
-    // coercion: "2" stays a string and fails Type.Number(). Making the browser lenient here is a
-    // slice 2 decision, not a side effect of the shim.
+  it("coerces arguments to a @sinclair/typebox schema, as pi-schema does for any JSON Schema", async () => {
     script.push(
       () => toolCall("probe", { n: "2" }),
       () => text("ok"),
@@ -692,8 +689,7 @@ describe("Orbit on pi-host", () => {
     );
     const last = results.at(-1)!;
     expect(last.toolName).toBe("probe");
-    expect(last.isError).toBe(true);
-    expect(JSON.stringify(last)).toMatch(/number/i);
+    expect(last.isError).toBeFalsy();
   });
 
   it("routes the bare family to the guards and runs the shell's tools", async () => {

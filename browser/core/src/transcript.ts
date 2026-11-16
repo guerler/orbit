@@ -1,11 +1,12 @@
 /** Turning the conversation's entries and events into what the chat panel shows. */
 import { contentText, type AssistantMessage, type Message } from "@earendil-works/pi-ai";
-import type { AgentEvent, EntryRecord } from "@earendil-works/pi-durable";
+import type { EntryRecord } from "@earendil-works/pi-durable";
 
 import { artifactsOf, type Artifact } from "./artifacts/kinds";
 
 import { DEFAULT_BRAND, followUpMark, type Brand } from "./agent/brand";
 import { EMPTY_REPLY } from "./agent/markers";
+import type { ChatEvent } from "./agent/events";
 import { usageTotals } from "./agent/saved";
 import type { ChatPanel } from "../../../app/src/renderer/chat/chat-panel";
 import { StreamedReply } from "./streamed-reply";
@@ -93,7 +94,7 @@ export class ChatView {
     return this.run;
   }
 
-  apply(events: readonly AgentEvent[]) {
+  apply(events: readonly ChatEvent[]) {
     let ended = false;
     for (const event of events) {
       if (event.type === "snapshot") {
@@ -107,8 +108,7 @@ export class ChatView {
         this.hooks.artifacts(artifactsOf(event.entries), true);
         this.stream(this.reply.start(event.generation?.message));
         this.hooks.busy(event.run !== undefined);
-        const totals = Object.values(event.usage.models ?? {});
-        this.hooks.usage(usageTotals(totals));
+        this.hooks.usage(usageTotals(Object.values(event.usage.models ?? {})));
       } else if (event.type === "run_start") {
         this.run = { spoke: false, done: false, aborted: false, exhausted: false };
         this.hooks.busy(true);
@@ -118,8 +118,8 @@ export class ChatView {
         this.chat.hideThinking();
         this.hooks.busy(false);
         ended = true;
-      } else if (event.type === "submission" && event.record.status === "unanswered") {
-        const { reason, detail } = event.record as { reason?: string; detail?: unknown };
+      } else if (event.type === "unanswered") {
+        const { reason, detail } = event;
         if (reason === "aborted") this.run.aborted = true;
         else if (reason === "turn_limit") this.run.exhausted = true;
         // A model error already reached the chat as its own entry; anything else says it here.

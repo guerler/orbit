@@ -1412,14 +1412,14 @@
         "description": "Call when the task is complete. The summary is your closing reply to the user: state the result itself, not where you wrote it.",
         "parameters": {
           "type": "object",
-          "required": [
-            "summary"
-          ],
           "properties": {
             "summary": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "summary"
+          ]
         }
       }
     }

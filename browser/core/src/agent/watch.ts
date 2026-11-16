@@ -223,8 +223,11 @@ export function galaxyWatch({
             ...(state ? { state } : {}),
             ...(noted.record ? { record: noted.record } : {}),
           };
-          await runtime.commit(() => ({ status: "running", checkpoint }), context);
-          await runtime.sleep(Date.now() + pollDelay(checkpoint.polls, pollMs), context);
+          await runtime.sleepUntil(
+            Date.now() + pollDelay(checkpoint.polls, pollMs),
+            checkpoint,
+            context,
+          );
           return;
         }
         const outcome: Outcome = refused ? "unreadable" : outcomeOf(watched.kind, state);

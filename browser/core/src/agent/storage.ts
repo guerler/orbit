@@ -36,6 +36,10 @@ export class WasmSqliteDatabase implements SqliteDatabase {
     return this.direct.run(sql, ...params);
   }
 
+  runCounted(sql: string, ...params: SqliteValue[]): Promise<number> {
+    return this.direct.runCounted(sql, ...params);
+  }
+
   get<T extends object>(sql: string, ...params: SqliteValue[]): Promise<T | undefined> {
     return this.direct.get<T>(sql, ...params);
   }
@@ -105,6 +109,13 @@ export class WasmSqliteDatabase implements SqliteDatabase {
           const prepared = step(sql, params);
           prepared.step();
           prepared.reset(true);
+        }),
+      runCounted: (sql, ...params) =>
+        guard(() => {
+          const prepared = step(sql, params);
+          prepared.step();
+          prepared.reset(true);
+          return this.database.changes();
         }),
       get: <T extends object>(sql: string, ...params: SqliteValue[]) =>
         guard(() => {

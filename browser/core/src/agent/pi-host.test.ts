@@ -5,7 +5,7 @@
  * the real brain on top of what this file pins.
  */
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { Type } from "@earendil-works/pi-ai";
+import { bool, num, obj, opt } from "@earendil-works/pi-schema";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createRegistry, Harness, MemoryStorage } from "@earendil-works/pi-durable";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -72,8 +72,8 @@ function probe(
     name: "echo",
     label: "Echo",
     description: "echoes n",
-    parameters: Type.Object({ n: Type.Number(), block: Type.Optional(Type.Boolean()) }),
-    execute: async (_id, params) => ({
+    parameters: obj({ n: num(), block: opt(bool()) }, { open: true }),
+    execute: async (_id, params: { n: number }) => ({
       content: [{ type: "text", text: `echo ${params.n}` }],
       details: { n: params.n },
     }),
@@ -82,7 +82,7 @@ function probe(
     name: "boom",
     label: "Boom",
     description: "throws",
-    parameters: Type.Object({}),
+    parameters: obj({}, { open: true }),
     execute: async () => {
       throw new Error("kaboom");
     },
@@ -113,12 +113,12 @@ async function boot(options: { ui?: PiHostUi; extras?: (api: ExtensionAPI) => vo
   const reports: unknown[] = [];
   const harness = await Harness.open(
     new MemoryStorage(),
-    { models, registry, settings: { ...LOOP, maxTurns: 6 }, onReport: (e) => reports.push(e) },
+    { models, registry, settings: LOOP, onReport: (e) => reports.push(e) },
     ctx,
   );
   opened.push(harness);
   const conversation = await harness.createConversation(
-    { ownership: { kind: "ownerless" }, agent: { model } },
+    { ownership: { kind: "ownerless" }, agent: { model, maxTurns: 6 } },
     ctx,
   );
   await host.attach(harness, conversation, ctx);
@@ -536,7 +536,7 @@ describe("pi-host", () => {
       name: "late",
       label: "Late",
       description: "too late",
-      parameters: Type.Object({}),
+      parameters: obj({}, { open: true }),
       execute: async () => ({ content: [], details: undefined }),
     });
     expect(host.tools).toEqual(["echo", "boom"]);

@@ -7,14 +7,10 @@
  * no seam is accepted and recorded as a note rather than failing, so a conformance run can list
  * every reach Orbit makes past this shell.
  */
-import type { Context as Chord, JsonValue } from "@earendil-works/chord";
-import type {
-  AssistantMessage,
-  Message,
-  Model,
-  ToolResultMessage,
-  TSchema,
-} from "@earendil-works/pi-ai";
+import type { Context as Chord } from "@earendil-works/chord/context";
+import type { JsonValue } from "@earendil-works/chord/json";
+import type { AssistantMessage, Message, Model, ToolResultMessage } from "@earendil-works/pi-ai";
+import type { Schema } from "@earendil-works/pi-schema";
 import type {
   EventBus,
   ExtensionAPI,
@@ -37,9 +33,6 @@ import {
   LiveDoc,
   section,
   ToolTask,
-  watchEvents,
-  type AgentEvent,
-  type AgentEventStream,
   type Conversation,
   type ConversationId,
   type EntryRecord,
@@ -54,6 +47,7 @@ import {
   type ToolExecutionResult,
   type ToolRegistration,
 } from "@earendil-works/pi-durable";
+import { watchChat, type ChatEvent, type ChatStream } from "./events";
 
 /** Every name pi's `on()` overloads accept; a union, since an overload set has no inferable first parameter. */
 export type PiEventName =
@@ -253,7 +247,7 @@ interface Bound {
   harness: Harness;
   conversation: Conversation;
   context: Chord;
-  stream: AgentEventStream;
+  stream: ChatStream;
   busy: boolean;
   inbox: number;
   agentModel?: ModelRef;
@@ -835,9 +829,8 @@ export function createPiHost(options: PiHostOptions): PiHost {
     return defineTool({
       name: def.name,
       description: def.description,
-      // Two pi-ai copies in the program: Orbit's TypeBox schema is passed through untouched so
-      // pi-ai validates it as it does today (strict for @sinclair/typebox, see the orbit test).
-      parameters: def.parameters as unknown as TSchema,
+      // Orbit's TypeBox schema is JSON Schema, passed through untouched for pi-schema to validate.
+      parameters: def.parameters as unknown as Schema,
       ...(def.executionMode ? { executionMode: def.executionMode } : {}),
       ...(def.prepareArguments ? { prepareArguments: def.prepareArguments } : {}),
       execute: async (args, api, chord) => {
@@ -1322,7 +1315,7 @@ export function createPiHost(options: PiHostOptions): PiHost {
     for (const resolve of b.starts.get(id) ?? []) resolve();
   };
 
-  async function onEvents(events: readonly AgentEvent[]) {
+  async function onEvents(events: readonly ChatEvent[]) {
     const b = bound;
     if (!b) return;
     let landed = false;
@@ -1332,7 +1325,7 @@ export function createPiHost(options: PiHostOptions): PiHost {
           // Overflow: pi-durable replaced the undelivered batches with one snapshot, so the run
           // boundaries in between are gone; catch up on what the snapshot says.
           b.busy = event.run !== undefined;
-          b.inbox = event.inbox.length;
+          b.inbox = event.inbox;
           b.agentModel = event.agent.model;
           started(b, event.run?.inputs[0]);
           landed = true;
@@ -1361,10 +1354,9 @@ export function createPiHost(options: PiHostOptions): PiHost {
           const later = events.slice(i + 1);
           const aborted = later.some(
             (e) =>
-              e.type === "submission" &&
-              event.inputs.includes(e.record.id) &&
-              e.record.status === "unanswered" &&
-              e.record.reason === "aborted",
+              e.type === "unanswered" &&
+              e.reason === "aborted" &&
+              e.inputs.some((id) => event.inputs.includes(id)),
           );
           const next = later.find((e) => e.type === "run_start");
           if (next?.type === "run_start" && !aborted) {
@@ -1386,7 +1378,7 @@ export function createPiHost(options: PiHostOptions): PiHost {
           landed = false;
           await emit("agent_end", { messages });
           const inbox = later.findLast((e) => e.type === "inbox_update");
-          const pending = inbox && inbox.type === "inbox_update" ? inbox.items.length : b.inbox;
+          const pending = inbox && inbox.type === "inbox_update" ? inbox.items : b.inbox;
           if (next === undefined && pending === 0) {
             const last = messages.findLast((m) => m.role === "assistant") as
               AssistantMessage | undefined;
@@ -1395,7 +1387,7 @@ export function createPiHost(options: PiHostOptions): PiHost {
           break;
         }
         case "inbox_update":
-          b.inbox = event.items.length;
+          b.inbox = event.items;
           break;
         case "agent_changed": {
           const next = event.agent.model;
@@ -1421,7 +1413,7 @@ export function createPiHost(options: PiHostOptions): PiHost {
   }
 
   async function attach(harness: Harness, conversation: Conversation, context: Chord) {
-    const stream = await watchEvents(harness, conversation.id, context);
+    const stream = await watchChat(harness, conversation, context);
     const snapshot = stream.snapshot;
     const b: Bound = {
       harness,
@@ -1429,7 +1421,7 @@ export function createPiHost(options: PiHostOptions): PiHost {
       context,
       stream,
       busy: snapshot.run !== undefined,
-      inbox: snapshot.inbox.length,
+      inbox: snapshot.inbox,
       agentModel: snapshot.agent.model,
       branch: [],
       contextLenAtRunStart: 0,
@@ -1491,7 +1483,7 @@ export function createPiHost(options: PiHostOptions): PiHost {
     stale = STALE_CTX_MESSAGE;
     const b = bound;
     bound = undefined;
-    if (b) await b.stream.stop();
+    b?.stream.stop();
   }
 
   return {
