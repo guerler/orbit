@@ -10,7 +10,7 @@ import { settlePlanDrafts } from "./plan-drafts";
 import { ChatPanel } from "../../../app/src/renderer/chat/chat-panel";
 import { applyOrbitTheme } from "../../../app/src/renderer/theme";
 
-import { galaxyCanRun, galaxyRefusalMessage } from "./diagnostics";
+import { answerPlan } from "./session/plans";
 import { buildConfig } from "./config";
 import { saveCredentials } from "./credentials";
 import { ensureCredentials, switchProvider } from "./credentials-modal";
@@ -632,27 +632,17 @@ export async function mountOrbitBrowser(
     { signal: mounted.signal },
   );
 
-  // Approve / Edit / Reject on a plan draft card; wording follows loom's handler.
+  // Approve / Edit / Reject on a plan draft card.
   el.messages.addEventListener("plan-draft-action", (e) => {
     const { action, body } = (e as CustomEvent<{ action: string; body: string }>).detail;
-    if (action === "approve") {
-      // loom's init gate refuses /execute when Galaxy cannot run the plan.
-      if (!galaxyCanRun(galaxyStatus)) {
-        chat.addErrorMessage(galaxyRefusalMessage());
-        return;
-      }
-      el.input.value =
-        "I approve the plan above. Show the full parameter table for review before executing.";
+    const answer = answerPlan(action, body, galaxyStatus);
+    if (answer && "refused" in answer) {
+      chat.addErrorMessage(answer.refused);
+    } else if (answer && "send" in answer) {
+      el.input.value = answer.send;
       submit();
-    } else if (action === "reject") {
-      el.input.value = "Reject the plan above — let's rethink it.";
-      submit();
-    } else if (action === "edit") {
-      // Edit hands the draft back for the user to change; it does not submit.
-      el.input.value =
-        "Here is the plan with my edits — please revise your draft accordingly:\n\n```plan\n" +
-        body +
-        "\n```";
+    } else if (answer && "draft" in answer) {
+      el.input.value = answer.draft;
       el.input.focus();
       // Setting .value does not raise `input`, so the box would stay one line tall.
       el.input.dispatchEvent(new Event("input"));
