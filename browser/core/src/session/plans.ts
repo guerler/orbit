@@ -1,4 +1,3 @@
-/** What the user's decision on a plan draft sends the agent; the wording follows loom's handler. */
 import { GALAXY_UNREACHABLE, type GalaxyStatus } from "../agent/prompt";
 
 /** Whether a plan can start; unreported means the agent has not answered yet. */
@@ -15,10 +14,8 @@ export function galaxyRefusalMessage(): string {
 
 export type PlanAction = "approve" | "reject" | "edit";
 
-/** A message to send, a draft for the user to finish, or why the decision is refused. */
 export type PlanAnswer = { send: string } | { draft: string } | { refused: string };
 
-/** The answer to `action` on the plan draft `body`, or undefined for an action it does not know. */
 export function answerPlan(
   action: string,
   body: string,
