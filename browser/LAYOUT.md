@@ -36,7 +36,10 @@ core/                     @galaxyproject/orbit-browser, TypeScript source behind
   src/shell.ts              mounts Orbit's ChatPanel, starts the flavor's worker, drives the chat
   src/layout.ts artifact-pane.ts usage-bar.ts retry-notice.ts   the pane's parts
   src/config.ts credentials*.ts   what the agent is handed, and by whom
-  src/transcript.ts         the chat drawn from the conversation's events
+  src/session/              the conversation as the page drives it, without a DOM: the transcript
+                            from the conversation's events (transcript.ts streamed-reply.ts), the
+                            answers to a plan draft (plans.ts), what the chat says about the
+                            session (notices.ts); the shell renders them and sends the user's actions
   src/chat-markdown.ts      the chat's markdown: the model's raw HTML as text, images only from Galaxy
   src/artifacts/            artifact kinds (kinds.ts), the pane's renderers (index.ts), mermaid
   src/node.ts               the Node entry: Headless, describe, runNodeSession
