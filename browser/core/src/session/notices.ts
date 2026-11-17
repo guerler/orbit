@@ -2,7 +2,7 @@ import { briefly } from "../agent/galaxy";
 import { WHAT } from "../agent/markers";
 import type { Waiting } from "../agent/worker";
 import type { Settled } from "../agent/watch";
-import type { RunOutcome } from "../transcript";
+import type { RunOutcome } from "./transcript";
 
 export interface Notice {
   level: "info" | "error";

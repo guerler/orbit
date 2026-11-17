@@ -22,7 +22,7 @@ import { buildConfig } from "./config";
 import { saveCredentials } from "./credentials";
 import { ensureCredentials, switchProvider } from "./credentials-modal";
 import { offeredProviders } from "./agent/providers";
-import { ChatView, type RunOutcome } from "./transcript";
+import { ChatView, type RunOutcome } from "./session/transcript";
 
 import { createConfirm } from "./confirm-modal";
 import { DEFAULT_BRAND, type Brand } from "./agent/brand";

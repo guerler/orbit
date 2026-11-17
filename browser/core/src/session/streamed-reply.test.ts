@@ -1,4 +1,4 @@
-import type { MessageChange } from "./agent/events";
+import type { MessageChange } from "../agent/events";
 import { describe, expect, it } from "vitest";
 
 import { StreamedReply } from "./streamed-reply";

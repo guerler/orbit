@@ -1,10 +1,10 @@
 import type { EntryRecord } from "@earendil-works/pi-durable";
 
-import type { ChatEvent } from "./agent/events";
+import type { ChatEvent } from "../agent/events";
 import { describe, expect, it, vi } from "vitest";
 
-import { DEFAULT_BRAND, followUpMark } from "./agent/brand";
-import { EMPTY_REPLY } from "./agent/markers";
+import { DEFAULT_BRAND, followUpMark } from "../agent/brand";
+import { EMPTY_REPLY } from "../agent/markers";
 
 const FOLLOW_UP_MARK = followUpMark(DEFAULT_BRAND);
 import { ChatView } from "./transcript";

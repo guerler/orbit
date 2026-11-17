@@ -2,27 +2,25 @@
 import { contentText, type AssistantMessage, type Message } from "@earendil-works/pi-ai";
 import type { EntryRecord } from "@earendil-works/pi-durable";
 
-import { artifactsOf, type Artifact } from "./artifacts/kinds";
+import { artifactsOf, type Artifact } from "../artifacts/kinds";
 
-import { DEFAULT_BRAND, followUpMark, type Brand } from "./agent/brand";
-import { EMPTY_REPLY } from "./agent/markers";
-import type { ChatEvent } from "./agent/events";
-import { usageTotals } from "./agent/saved";
-import type { ChatPanel } from "../../../app/src/renderer/chat/chat-panel";
+import { DEFAULT_BRAND, followUpMark, type Brand } from "../agent/brand";
+import { EMPTY_REPLY } from "../agent/markers";
+import type { ChatEvent } from "../agent/events";
+import { usageTotals } from "../agent/saved";
 import { StreamedReply } from "./streamed-reply";
 
-type Chat = Pick<
-  ChatPanel,
-  | "addUserMessage"
-  | "addToolCard"
-  | "updateToolCard"
-  | "startAssistantMessage"
-  | "appendDelta"
-  | "finishAssistantMessage"
-  | "hideThinking"
-  | "showThinking"
-  | "clear"
->;
+export interface Chat {
+  addUserMessage(text: string): void;
+  addToolCard(id: string, name: string): void;
+  updateToolCard(id: string, status: "running" | "done" | "error", result?: string): void;
+  startAssistantMessage(): void;
+  appendDelta(delta: string): void;
+  finishAssistantMessage(): void;
+  hideThinking(): void;
+  showThinking(): void;
+  clear(): void;
+}
 
 /** How the run that just ended went, for the one line that explains a quiet ending. */
 export interface RunOutcome {
