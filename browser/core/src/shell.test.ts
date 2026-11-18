@@ -245,6 +245,82 @@ describe("a mount inside a shadow root", () => {
   });
 });
 
+describe("a host that ends the page while it starts", () => {
+  it("starts no worker when it ends during the launch, and leaves nothing behind", async () => {
+    const ended = new AbortController();
+    const createWorker = vi.fn();
+    const heads = document.head.childElementCount;
+    let launched!: (context: { historyId: string }) => void;
+    const mounting = mountOrbitBrowser(container, {
+      ...base,
+      createWorker,
+      signal: ended.signal,
+      launch: () => new Promise((resolve) => (launched = resolve)),
+    });
+    await vi.waitFor(() => expect(launched).toBeDefined());
+    ended.abort();
+    expect(container.childElementCount).toBe(0);
+    expect(document.head.childElementCount).toBe(heads);
+    launched({ historyId: "h1" });
+    const handle = await mounting;
+    expect(createWorker).not.toHaveBeenCalled();
+    expect(container.childElementCount).toBe(0);
+    handle.dispose();
+  });
+
+  it("closes the provider picker and starts no worker when it ends there", async () => {
+    vi.stubGlobal("Option", function (text: string, value: string) {
+      return Object.assign(document.createElement("option"), { text, value });
+    });
+    saveCredentials({ provider: "openrouter" });
+    const ended = new AbortController();
+    const createWorker = vi.fn();
+    try {
+      const mounting = mountOrbitBrowser(container, {
+        ...base,
+        createWorker,
+        signal: ended.signal,
+        launch: async () => ({ historyId: "h1" }),
+      });
+      await vi.waitFor(() => expect(container.querySelector("#cred-overlay")).not.toBeNull());
+      ended.abort();
+      await mounting;
+      expect(createWorker).not.toHaveBeenCalled();
+      expect(container.childElementCount).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("ends a started page as dispose does", async () => {
+    const ended = new AbortController();
+    const worker = fakeWorker();
+    await mountOrbitBrowser(container, {
+      ...base,
+      createWorker: () => worker as unknown as Worker,
+      signal: ended.signal,
+      launch: async () => ({ historyId: "h1" }),
+    });
+    ended.abort();
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+    expect(container.childElementCount).toBe(0);
+  });
+
+  it("starts nothing when it has already ended", async () => {
+    const ended = new AbortController();
+    ended.abort();
+    const createWorker = vi.fn();
+    await mountOrbitBrowser(container, {
+      ...base,
+      createWorker,
+      signal: ended.signal,
+      launch: async () => ({ historyId: "h1" }),
+    });
+    expect(createWorker).not.toHaveBeenCalled();
+    expect(container.childElementCount).toBe(0);
+  });
+});
+
 describe("repeated mounts", () => {
   /** Every listener added to the document or the window, kept until it is removed or aborted. */
   function trackListeners() {

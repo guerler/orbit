@@ -247,6 +247,7 @@ export async function ensureCredentials(
   container: HTMLElement,
   brand: Brand = DEFAULT_BRAND,
   offered: readonly Provider[] = PROVIDERS,
+  signal?: AbortSignal,
 ): Promise<Credentials> {
   const stored = loadCredentials(brand);
   if (stored && !credentialProblem(stored, offered)) return stored;
@@ -255,5 +256,5 @@ export async function ensureCredentials(
   const provider = process.env.llm_provider as string | undefined;
   if (provider) return { provider, model: process.env.llm_model as string | undefined };
   if (!stored && offered.some((p) => p.id === "galaxy")) return { provider: "galaxy" };
-  return (await openPicker(container, false, brand, offered)) as Credentials;
+  return (await openPicker(container, false, brand, offered, signal)) as Credentials;
 }

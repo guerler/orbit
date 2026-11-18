@@ -114,6 +114,7 @@ export interface OrbitBrowserOptions {
   /** The same brand as the flavor's worker, whose stored state the page reads under it. */
   brand?: Brand;
   pool?: string;
+  signal?: AbortSignal;
 }
 
 /** The mounted page, as its host sees it. */
@@ -229,9 +230,16 @@ export async function mountOrbitBrowser(
     else if (notice) info(notice.text);
   };
 
+  options.signal?.addEventListener("abort", () => handle.dispose(), {
+    once: true,
+    signal: mounted.signal,
+  });
+  if (options.signal?.aborted) handle.dispose();
+
   // Ask for a provider/key before the worker starts.
   const offered = offeredProviders(!!options.galaxyChatUrl);
-  let creds = await ensureCredentials(container, brand, offered);
+  let creds = await ensureCredentials(container, brand, offered, mounted.signal);
+  if (mounted.signal.aborted) return handle;
   const config = buildConfig(target, creds);
   const rootPath = new URL(config.galaxy_root, document.baseURI).pathname;
   chat.setGalaxyServerUrl(absolute(config.galaxy_root));
@@ -239,6 +247,7 @@ export async function mountOrbitBrowser(
   // The page's own Galaxy requests take the transport the agent's do.
   const galaxy = connectGalaxy({ root: config.galaxy_root, credentials });
   const launch = await (options.launch ?? currentHistoryLaunch)(galaxy);
+  if (mounted.signal.aborted) return handle;
   if (launch.ask) asks.push(launch.ask);
   if (launch.stop) {
     chat.addErrorMessage(launch.stop);
