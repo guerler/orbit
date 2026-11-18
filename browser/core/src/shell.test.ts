@@ -212,6 +212,39 @@ describe("dispose", () => {
   });
 });
 
+describe("a mount inside a shadow root", () => {
+  it("keeps its styles and state in the root and on the host, and takes them away on dispose", async () => {
+    const host = document.body.appendChild(document.createElement("div"));
+    const inside = host.attachShadow({ mode: "open" }).appendChild(document.createElement("div"));
+    const heads = document.head.childElementCount;
+    const handle = await mountOrbitBrowser(inside, {
+      ...base,
+      createWorker: () => fakeWorker() as unknown as Worker,
+      launch: async () => ({ historyId: "h1" }),
+    });
+    expect(host.shadowRoot!.querySelectorAll("style")).toHaveLength(1);
+    expect(document.head.childElementCount).toBe(heads + 1);
+    expect(host.getAttribute("data-theme")).toBe("light");
+    expect(host.classList.contains("artifact-collapsed")).toBe(true);
+    expect(document.body.classList.contains("artifact-collapsed")).toBe(false);
+    handle.dispose();
+    expect(host.shadowRoot!.querySelectorAll("style")).toHaveLength(0);
+    expect(document.head.childElementCount).toBe(heads);
+    host.remove();
+  });
+
+  it("adds no styles of its own to a page that links them", async () => {
+    const heads = document.head.childElementCount;
+    const handle = await mountOrbitBrowser(container, {
+      ...base,
+      createWorker: () => fakeWorker() as unknown as Worker,
+      launch: async () => ({ historyId: "h1" }),
+    });
+    expect(document.head.childElementCount).toBe(heads);
+    handle.dispose();
+  });
+});
+
 describe("repeated mounts", () => {
   /** Every listener added to the document or the window, kept until it is removed or aborted. */
   function trackListeners() {

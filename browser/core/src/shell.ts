@@ -4,6 +4,9 @@
  */
 import "../../../app/src/renderer/styles.css";
 import "./shell.css";
+import orbitStyles from "../../../app/src/renderer/styles.css?inline";
+import shellStyles from "./shell.css?inline";
+import fontStyles from "../../../app/src/renderer/assets/fonts/fonts.css?inline";
 import { useChatMarkdown } from "./chat-markdown";
 import { settlePlanDrafts } from "./plan-drafts";
 
@@ -39,7 +42,7 @@ import {
   type ArtifactRenderers,
 } from "./artifacts";
 import { registerArtifactKinds, type ArtifactKind } from "./artifacts/kinds";
-import { mountLayout } from "./layout";
+import { hostOf, mountLayout } from "./layout";
 import { mountArtifactPane } from "./artifact-pane";
 import { mountUsageBar } from "./usage-bar";
 import { mountBuildStamp } from "./build-stamp";
@@ -152,11 +155,10 @@ function autosize(input: HTMLTextAreaElement): void {
 }
 
 /**
- * Mount the shell into `container`. It assumes it owns its document: one mount per page or
- * iframe. It puts the theme on the root element and the pane's state and drag cursor on body,
- * sizes the pane from the window's width, injects fixed element ids, configures the shared
- * `marked`, and its worker holds a per-origin tab lock. A host that needs it inside a larger page
- * mounts it in an iframe.
+ * Mount the shell into `container`, one mount per page or shadow root. It puts the theme on the
+ * root element and the pane's state and drag cursor on body, or on the shadow host, where it also
+ * adds its styles. It sizes the pane from the window's width, injects fixed element ids, configures
+ * the shared `marked`, and its worker holds a per-origin tab lock.
  */
 export async function mountOrbitBrowser(
   container: HTMLElement,
@@ -176,7 +178,18 @@ export async function mountOrbitBrowser(
     datasetId: options.datasetId,
     galaxyChatUrl: options.galaxyChatUrl,
   };
-  applyOrbitTheme("light", document.documentElement);
+  const host = hostOf(container);
+  const styles: HTMLStyleElement[] = [];
+  if (host) {
+    const inside = document.createElement("style");
+    inside.textContent = orbitStyles + shellStyles;
+    const fonts = document.createElement("style");
+    fonts.textContent = fontStyles;
+    (container.getRootNode() as ShadowRoot).append(inside);
+    document.head.append(fonts);
+    styles.push(inside, fonts);
+  }
+  applyOrbitTheme("light", host ?? document.documentElement);
 
   const el = mountLayout(container, { save: !!sessions });
   if (el.save && sessions?.label) el.save.title = sessions.label;
@@ -193,6 +206,7 @@ export async function mountOrbitBrowser(
       started?.close();
       chat.dispose();
       container.replaceChildren();
+      styles.forEach((style) => style.remove());
     },
     ask(question) {
       asks.push(question);

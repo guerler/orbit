@@ -135,11 +135,11 @@ function openPicker(
   syncFields();
 
   overlay.classList.remove("hidden");
-  keyInput.focus();
+  (keyField.classList.contains("hidden") ? providerSel : keyInput).focus();
 
   return new Promise<Credentials | null>((resolve) => {
     const close = (value: Credentials | null) => {
-      document.removeEventListener("keydown", onKey, true);
+      container.removeEventListener("keydown", onKey, true);
       overlay.classList.add("hidden");
       overlay.remove();
       resolve(value);
@@ -156,7 +156,7 @@ function openPicker(
     // The page that opened it goes away: the picker closes as if dismissed.
     signal?.addEventListener("abort", () => close(null), { once: true });
     if (cancellable) {
-      document.addEventListener("keydown", onKey, true);
+      container.addEventListener("keydown", onKey, true);
       overlay.addEventListener("click", (e) => {
         if (e.target === overlay) close(null);
       });

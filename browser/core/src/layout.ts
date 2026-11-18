@@ -67,6 +67,12 @@ export interface Elements {
   artifactContent: HTMLElement;
 }
 
+/** Returns the shadow host `node` renders in, or undefined when it is in the page itself. */
+export function hostOf(node: Node): HTMLElement | undefined {
+  const root = node.getRootNode();
+  return root instanceof ShadowRoot ? (root.host as HTMLElement) : undefined;
+}
+
 /** Write the layout into `container` and hand back the parts the shell drives. */
 export function mountLayout(container: HTMLElement, { save = true } = {}): Elements {
   container.innerHTML = LAYOUT;
