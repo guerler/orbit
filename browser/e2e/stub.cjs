@@ -324,6 +324,41 @@ function hostPage(url) {
             ? { visualization_id: saved.id, visualization_title: saved.title }
             : {}),
     };
+    if (params.get("element")) {
+        const mount = [
+            "(async () => {",
+            "  const plugin = await (await fetch('/api/plugins/olit')).json();",
+            "  const attr = plugin.entry_point.attr;",
+            "  const record = (window.__element = { reports: [], workers: 0, terminated: 0 });",
+            "  const NativeWorker = window.Worker;",
+            "  window.Worker = function (...args) {",
+            "    const worker = new NativeWorker(...args);",
+            "    const terminate = worker.terminate.bind(worker);",
+            "    record.workers++;",
+            "    worker.terminate = () => { record.terminated++; terminate(); };",
+            "    return worker;",
+            "  };",
+            "  await import(`${plugin.href}/${attr.src}`);",
+            "  window.__create = (config) => {",
+            "    const element = document.createElement(attr.webcomponent);",
+            "    element.style.cssText = 'display:block;height:100%';",
+            "    element.setAttribute('data-incoming', JSON.stringify({ root: window.location.origin + '/', visualization_config: config, visualization_plugin: plugin }));",
+            "    element.addEventListener('galaxy-visualization', (event) => record.reports.push(event.detail));",
+            "    return element;",
+            "  };",
+            "  window.__command = (command) => document.querySelector(attr.webcomponent).dispatchEvent(new CustomEvent('galaxy', { detail: { from: 'galaxy', ...command } }));",
+            `  document.getElementById('slot-a').appendChild(window.__create(${JSON.stringify(incoming.visualization_config)}));`,
+            "})();",
+        ].join("\n");
+        return [
+            "<!doctype html>",
+            '<html lang="en"><head><meta charset="UTF-8" /></head><body style="margin:0">',
+            '<div id="app">Galaxy\'s own app</div>',
+            '<div style="display:flex;height:90vh"><div id="slot-a" style="flex:1"></div><div id="slot-b" style="flex:1"></div></div>',
+            `<script>${mount}<\/script>`,
+            "</body></html>",
+        ].join("\n");
+    }
     if (params.get("frame")) {
         // As Galaxy's VisualizationFrame.vue mounts a plugin: it asks the plugin API for the
         // entry point, then fills an iframe without a src, whose location stays about:blank.

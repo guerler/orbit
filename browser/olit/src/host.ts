@@ -6,9 +6,19 @@ export type HostMessage = {
   visualization_config?: Record<string, unknown>;
 };
 
+export interface Mounting {
+  element: HTMLElement;
+  signal: AbortSignal;
+}
+
 /** Posts to the page that embeds Olit, or to `target`: Galaxy also listens on the frame it mounted. */
-export function tellHost(message: HostMessage, target: Window = window.parent) {
-  target?.postMessage({ from: "galaxy-visualization", ...message }, "*");
+export function tellHost(message: HostMessage, target: Window | HTMLElement = window.parent) {
+  const data = { from: "galaxy-visualization", ...message };
+  if (target instanceof HTMLElement) {
+    target.dispatchEvent(new CustomEvent("galaxy-visualization", { detail: data }));
+  } else {
+    target?.postMessage(data, "*");
+  }
 }
 
 /** A command from Galaxy AI. */
@@ -42,4 +52,18 @@ export function listenToGalaxy(root: string, onCommand: (command: ChatCommand) =
       onCommand(command);
     }
   });
+}
+
+export function listenToElement(
+  { element, signal }: Mounting,
+  onCommand: (command: ChatCommand) => void,
+) {
+  element.addEventListener(
+    "galaxy",
+    (event) => {
+      const command = chatCommand((event as CustomEvent).detail);
+      if (command) onCommand(command);
+    },
+    { signal },
+  );
 }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { chatCommand, listenToGalaxy, tellHost } from "./host";
+import { chatCommand, listenToElement, listenToGalaxy, tellHost } from "./host";
 
 const GALAXY = "https://galaxy.example";
 const later = () => new Promise((resolve) => setTimeout(resolve, 10));
@@ -76,5 +76,45 @@ describe("listenToGalaxy", () => {
     post(window, window.location.origin);
     await later();
     expect(commands).toEqual([]);
+  });
+});
+
+describe("as an element in Galaxy's page", () => {
+  it("reports with an event on the element, carrying the message a frame would post", () => {
+    const element = document.createElement("div");
+    const posted = vi.spyOn(window, "postMessage").mockImplementation(() => {});
+    const reports: unknown[] = [];
+    element.addEventListener("galaxy-visualization", (e) =>
+      reports.push((e as CustomEvent).detail),
+    );
+    tellHost({ visualization_saved: false, visualization_config: { exchange_id: "c1" } }, element);
+    expect(reports).toEqual([
+      {
+        from: "galaxy-visualization",
+        visualization_saved: false,
+        visualization_config: { exchange_id: "c1" },
+      },
+    ]);
+    expect(posted).not.toHaveBeenCalled();
+  });
+
+  it("takes commands from events on the element until it ends, and none from the window", async () => {
+    const element = document.createElement("div");
+    const ended = new AbortController();
+    const commands: unknown[] = [];
+    listenToElement({ element, signal: ended.signal }, (command) => commands.push(command));
+    window.postMessage({ from: "galaxy", type: "ask", question: "From the window" }, "*");
+    await later();
+    element.dispatchEvent(
+      new CustomEvent("galaxy", { detail: { from: "galaxy", type: "ask", question: "Hi" } }),
+    );
+    element.dispatchEvent(
+      new CustomEvent("galaxy", { detail: { type: "ask", question: "Unmarked" } }),
+    );
+    ended.abort();
+    element.dispatchEvent(
+      new CustomEvent("galaxy", { detail: { from: "galaxy", type: "open", exchange_id: "c2" } }),
+    );
+    expect(commands).toEqual([{ type: "ask", question: "Hi" }]);
   });
 });

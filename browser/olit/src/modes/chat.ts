@@ -1,25 +1,30 @@
 /** Runs Olit as Galaxy AI's chat, saved to Galaxy's chats. Galaxy mounts it once and sends it commands. */
 import { mountOrbitBrowser, type OrbitBrowserHandle } from "@galaxyproject/orbit-browser";
-import { type ChatCommand, listenToGalaxy, tellHost } from "../host";
+import { type ChatCommand, listenToElement, listenToGalaxy, tellHost } from "../host";
 import { type LaunchRequest, shellOptions } from "../launch";
 import { chats } from "../stores/chats";
 import type { OlitMode } from "./mode";
 
 export const chatMode: OlitMode = {
-  async mount(container, incoming) {
+  async mount(container, incoming, mounting) {
     let shown: OrbitBrowserHandle | undefined;
     /** Commands run one at a time, in the order Galaxy sent them. */
     let work: Promise<unknown> = Promise.resolve();
-    listenToGalaxy(incoming.root, (command) => {
+    const take = (command: ChatCommand) => {
       work = work.then(() => run(command)).catch(failed);
-    });
+    };
+    if (mounting) {
+      listenToElement(mounting, take);
+    } else {
+      listenToGalaxy(incoming.root, take);
+    }
 
     /** What Galaxy was last told: the chat shown, once known, and whether it has unsaved changes. */
     let active: string | null | undefined;
     let unsaved: boolean | undefined;
     function tell() {
       const config = active === undefined ? {} : { visualization_config: { exchange_id: active } };
-      tellHost({ visualization_saved: !unsaved, ...config }, window);
+      tellHost({ visualization_saved: !unsaved, ...config }, mounting?.element ?? window);
     }
     function reportUnsaved(value: boolean) {
       if (value !== unsaved) {
@@ -40,13 +45,13 @@ export const chatMode: OlitMode = {
       shown = undefined;
       // A newly opened conversation has no unsaved changes.
       reportUnsaved(false);
-      shown = await mountOrbitBrowser(
-        container,
-        shellOptions(incoming, chats, request, {
+      shown = await mountOrbitBrowser(container, {
+        ...shellOptions(incoming, chats, request, {
           savedState: (saved) => reportUnsaved(!saved),
           active: reportActive,
         }),
-      );
+        signal: mounting?.signal,
+      });
     }
 
     async function run(command: ChatCommand) {

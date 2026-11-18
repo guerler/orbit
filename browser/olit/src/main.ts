@@ -38,4 +38,82 @@ async function main() {
   }
 }
 
+const TAG = "olit-plugin";
+
+class OlitPlugin extends HTMLElement {
+  private ended: AbortController | undefined;
+  private leaving: ReturnType<typeof setTimeout> | undefined;
+  private moving = false;
+  private scrolled = new Map<Element, number>();
+  private focused: HTMLElement | undefined;
+  private sized: ResizeObserver | undefined;
+
+  connectedCallback() {
+    clearTimeout(this.leaving);
+    if (this.ended) {
+      this.restore();
+    } else {
+      this.start();
+    }
+  }
+
+  disconnectedCallback() {
+    this.moving = true;
+    this.leaving = setTimeout(() => {
+      if (!this.isConnected) this.end();
+    });
+  }
+
+  private start() {
+    const ended = new AbortController();
+    const { signal } = ended;
+    this.ended = ended;
+    this.moving = false;
+    const root = this.shadowRoot ?? this.attachShadow({ mode: "open" });
+    root.addEventListener(
+      "scroll",
+      (e) => {
+        const target = e.target as Element;
+        if (!this.moving) this.scrolled.set(target, target.scrollTop);
+      },
+      { capture: true, passive: true, signal },
+    );
+    root.addEventListener("focusin", (e) => (this.focused = e.target as HTMLElement), { signal });
+    const container = document.createElement("div");
+    container.id = "app";
+    root.replaceChildren(container);
+    const incoming = parseIncoming(this, window.location.search);
+    MODES[incoming.view]
+      .mount(container, incoming, { element: this, signal })
+      .catch((e) => console.error("[olit] could not start", e));
+  }
+
+  private end() {
+    this.ended?.abort();
+    this.ended = undefined;
+    this.sized?.disconnect();
+    this.shadowRoot?.replaceChildren();
+    this.scrolled.clear();
+    this.focused = undefined;
+  }
+
+  private restore() {
+    this.sized?.disconnect();
+    this.sized = new ResizeObserver(() => {
+      if (this.offsetHeight > 0) {
+        this.sized?.disconnect();
+        for (const [element, top] of this.scrolled) {
+          if (element.isConnected) element.scrollTop = top;
+        }
+        this.moving = false;
+      }
+    });
+    this.sized.observe(this);
+    const unfocused = document.activeElement === document.body || document.activeElement === null;
+    if (unfocused && this.focused?.isConnected) this.focused.focus({ preventScroll: true });
+  }
+}
+
+if (!customElements.get(TAG)) customElements.define(TAG, OlitPlugin);
+
 void main();
