@@ -1,8 +1,9 @@
 // Tests Olit as the olit-plugin element on the stub's element host page, which mounts it in its own
 // page as Galaxy AI does: it imports the plugin's src, creates the tag the XML declares with
 // data-incoming, and reads galaxy-visualization events. Covers: no frame and the host's #app left
-// alone, reports, commands, a move, focus across moves, a drag copy, removal, removal while starting, remounts, and the visualization
-// view. BROWSER=firefox or webkit runs it there.
+// alone, reports, commands, a move, focus across moves, a drag copy, an embedded visualization
+// across a move, removal, removal while starting, remounts, and the visualization view.
+// BROWSER=firefox or webkit runs it there.
 const playwright = require("playwright");
 const storedProvider = require("./stored-provider.cjs");
 const BROWSER = process.env.BROWSER || "chromium";
@@ -115,6 +116,18 @@ const ready = (page, ms = 120000) => until(async () => /Ready\./.test(await text
     await page.keyboard.press("ControlOrMeta+c");
     const copied = await page.evaluate(() => window.__copied);
     check("a backward drag copies the answer", /Noted/.test(copied || ""), JSON.stringify(copied));
+
+    const shownViewer = () =>
+        page.evaluate(() => {
+            const frame = document.querySelector("olit-plugin").shadowRoot.querySelector("#artifact-content iframe");
+            return /ngl mounted/.test(frame?.contentDocument?.getElementById("app")?.textContent || "");
+        });
+    await fetch(`${STUB}/__script?name=visualization`);
+    await page.evaluate(() => window.__command({ type: "ask", question: "open the structure in a viewer" }));
+    const viewed = await until(shownViewer, 90000);
+    await page.evaluate(() => document.getElementById("slot-a").appendChild(document.querySelector("olit-plugin")));
+    check("a move keeps an embedded visualization shown", viewed && (await until(shownViewer, 10000)));
+    await fetch(`${STUB}/__script?name=plain`);
 
     await page.evaluate(() => document.querySelector("olit-plugin").remove());
     check("removing it ends its worker and lets go of its storage",

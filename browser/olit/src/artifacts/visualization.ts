@@ -29,29 +29,35 @@ export async function renderVisualization(
   frame.title = "Galaxy visualization";
   frame.style.cssText = "width:100%;height:100%;min-height:320px;border:0;";
   body.appendChild(frame);
-  const doc = frame.contentDocument!;
   const attr = plugin?.entry_point?.attr;
-  if (!attr?.src) {
-    doc.body.textContent = `Unable to locate plugin module for: ${a.visualization}.`;
-    return;
-  }
   // Galaxy's own paths, which are this page's too once Galaxy serves it.
   const root = new URL(galaxy.root, document.baseURI);
-  const app = doc.createElement("div");
-  app.id = "app";
-  app.setAttribute("data-incoming", JSON.stringify(incoming(a, plugin, root.href)));
-  doc.body.appendChild(app);
-  const script = doc.createElement("script");
-  script.type = attr.type || "module";
-  script.src = new URL(`${plugin.href}/${attr.src}`, root).href;
-  script.addEventListener("error", () => {
-    body.textContent = `Could not load the visualization '${a.visualization}'.`;
-  });
-  doc.body.appendChild(script);
-  if (attr.css) {
-    const link = doc.createElement("link");
-    link.rel = "stylesheet";
-    link.href = new URL(`${plugin.href}/${attr.css}`, root).href;
-    doc.head.appendChild(link);
-  }
+  const fill = () => {
+    const doc = frame.contentDocument;
+    if (doc && !doc.body.hasChildNodes()) {
+      if (attr?.src) {
+        const app = doc.createElement("div");
+        app.id = "app";
+        app.setAttribute("data-incoming", JSON.stringify(incoming(a, plugin, root.href)));
+        doc.body.appendChild(app);
+        const script = doc.createElement("script");
+        script.type = attr.type || "module";
+        script.src = new URL(`${plugin.href}/${attr.src}`, root).href;
+        script.addEventListener("error", () => {
+          body.textContent = `Could not load the visualization '${a.visualization}'.`;
+        });
+        doc.body.appendChild(script);
+        if (attr.css) {
+          const link = doc.createElement("link");
+          link.rel = "stylesheet";
+          link.href = new URL(`${plugin.href}/${attr.css}`, root).href;
+          doc.head.appendChild(link);
+        }
+      } else {
+        doc.body.textContent = `Unable to locate plugin module for: ${a.visualization}.`;
+      }
+    }
+  };
+  fill();
+  frame.addEventListener("load", fill);
 }

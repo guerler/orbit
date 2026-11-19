@@ -77,6 +77,17 @@ describe("what a restored or model-made artifact may reach", () => {
     expect(asked).toEqual(["api/plugins/..%2Fusers%2Fcurrent"]);
   });
 
+  it("fills its frame again when the frame reloads empty, and only then", async () => {
+    const doc = await mounted(igv);
+    const frame = Array.from(document.querySelectorAll("iframe")).at(-1)!;
+    frame.dispatchEvent(new Event("load"));
+    expect(doc.querySelectorAll("#app")).toHaveLength(1);
+    doc.body.replaceChildren();
+    frame.dispatchEvent(new Event("load"));
+    expect(doc.querySelectorAll("#app")).toHaveLength(1);
+    expect(doc.querySelectorAll("script")).toHaveLength(1);
+  });
+
   it("says so when the plugin declares no module to mount", async () => {
     plugin = { name: "igv" };
     const doc = await mounted(igv);
