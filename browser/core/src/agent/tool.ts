@@ -56,6 +56,16 @@ export const submittedBy = (name: string, value: unknown): Watched[] =>
 
 export const fail = (text: string) => new Outcome(text, true);
 
+/** The most of a tool result the model sees and the conversation keeps. */
+export const MAX_RESULT_CHARS = 50_000;
+
+/** A result's text cut to `MAX_RESULT_CHARS`, saying how much was left out. */
+export function capped(text: string): string {
+  return text.length > MAX_RESULT_CHARS
+    ? `${text.slice(0, MAX_RESULT_CHARS)}\n\n[Truncated: ${text.length - MAX_RESULT_CHARS} more characters. Narrow the request, or write large output to a file and summarize it.]`
+    : text;
+}
+
 export interface Python {
   /** An abort ends the run and the realm with it; the next call starts afresh. */
   run(code: string, signal?: AbortSignal): Promise<string>;
@@ -184,12 +194,13 @@ export function durableTool(tool: AgentTool, host: ToolHost): ToolRegistration {
         value = fail(`Tool '${tool.name}' raised: ${(err as Error)?.message ?? err}`);
       }
       const submitted = submittedBy(tool.name, value);
-      const text =
+      const text = capped(
         value instanceof Outcome
           ? value.text
           : typeof value === "string"
             ? value
-            : rendered({ data: claim(value, ctx) });
+            : rendered({ data: claim(value, ctx) }),
+      );
       const rebound = JSON.stringify(ctx.binding) !== before;
       const watched = submitted.filter((w) => !isTerminal(w.kind, w.state));
       if (rebound || watched.length) {
