@@ -9,10 +9,10 @@ import { describe, expect, it } from "vitest";
 import {
   BATCH,
   compressionLost,
-  organizeDatasets,
-  organizeDatasetsOp,
+  buildCollection,
+  buildCollectionOp,
   summarize,
-} from "./organize-datasets";
+} from "./build-collection";
 
 type Dataset = Record<string, any>;
 interface Call {
@@ -48,7 +48,7 @@ function fakeContext(contents: Dataset[]) {
     POST: async (path: string, init: any) => {
       expect(path).toBe("/api/dataset_collections");
       calls.push({ op: "collection", body: init.body });
-      return ok({ id: "hdca1", name: init.body.name });
+      return ok({ id: "hdca1", hid: 7, name: init.body.name });
     },
     PUT: async (path: string, init: any) => {
       expect(path).toBe("/api/histories/{history_id}/contents/bulk");
@@ -63,23 +63,23 @@ function fakeContext(contents: Dataset[]) {
 const args = (inputs: Record<string, unknown>) =>
   ({
     historyId: "h1",
-    collectionName: "reads",
-    structure: "auto",
+    name: "reads",
+    collectionType: "auto",
     include: "*",
     tags: [],
     ...inputs,
-  }) as Parameters<typeof organizeDatasets>[0];
+  }) as Parameters<typeof buildCollection>[0];
 
 async function run(contents: Dataset[], inputs: Record<string, unknown> = {}) {
   const { ctx, calls } = fakeContext(contents);
-  const state = await organizeDatasets(args(inputs), ctx);
+  const state = await buildCollection(args(inputs), ctx);
   return { calls, state };
 }
 
 /** A refusal and the requests made before it. */
 async function refused(contents: Dataset[], inputs: Record<string, unknown> = {}) {
   const { ctx, calls } = fakeContext(contents);
-  const error = await organizeDatasets(args(inputs), ctx).then(
+  const error = await buildCollection(args(inputs), ctx).then(
     () => undefined,
     (err: unknown) => err as Error,
   );
@@ -106,7 +106,7 @@ const ZIPPED = [3, 4, 5, 6].map((i) => ({
   history_content_type: "dataset",
 }));
 
-describe("organize_datasets", () => {
+describe("build_collection", () => {
   it("makes paired reads a list:paired collection", async () => {
     const body = built((await run(SRA)).calls)[0];
     expect(body.collection_type).toBe("list:paired");
@@ -157,23 +157,29 @@ const MESSY = [
   { id: "notes", name: "README.txt", history_content_type: "dataset" },
 ];
 
-describe("leftovers and scope", () => {
-  it("gives leftovers their own collection instead of dropping them", async () => {
-    const collections = built((await run(MESSY)).calls);
-    expect(collections.map((b) => b.collection_type)).toEqual(["list:paired", "list"]);
-    expect(collections[1].element_identifiers.map((e: any) => e.name)).toEqual([
-      "README.txt",
-      "SRR200099_1.fastq.gz",
-    ]);
+describe("unpaired datasets and scope", () => {
+  it("leaves orphan mates and unrelated files out, as Galaxy's pair builder does", async () => {
+    const { calls, state } = await run(MESSY);
+    const collections = built(calls);
+    expect(collections.map((b) => b.collection_type)).toEqual(["list:paired"]);
+    expect(summarize(state).unpaired).toEqual({
+      count: 2,
+      names: ["README.txt", "SRR200099_1.fastq.gz"],
+    });
   });
 
-  it("hides the source datasets of both collections, as Galaxy's builders do", async () => {
-    const collections = built((await run(MESSY)).calls);
-    expect(collections.map((b) => b.hide_source_items)).toEqual([true, true]);
-    expect(collections.map((b) => b.copy_elements)).toEqual([undefined, undefined]);
+  it("hides only the collection's own sources, as Galaxy's builders do", async () => {
+    const [body] = built((await run(MESSY)).calls);
+    expect(body.hide_source_items).toBe(true);
+    expect(body.copy_elements).toBeUndefined();
+    const ids = body.element_identifiers.flatMap((e: any) =>
+      e.element_identifiers.map((m: any) => m.id),
+    );
+    expect(ids).not.toContain("half");
+    expect(ids).not.toContain("notes");
   });
 
-  it("keeps leftovers out of the datatype write", async () => {
+  it("keeps unpaired datasets out of the datatype write", async () => {
     const [body] = bulks(
       (await run(MESSY, { datatype: "fastqsanger.gz" })).calls,
       "change_datatype",
@@ -194,23 +200,23 @@ describe("leftovers and scope", () => {
       ["False", "False"],
     ]);
     expect(message).toBe(
-      "Nothing was organized: no visible datasets formed a list collection. " +
+      "No collection was built: no visible datasets formed a list collection. " +
         `${SRA.length} hidden dataset(s) would form a list:paired collection; they are most ` +
-        "likely inside a collection built earlier. Use that collection rather than organizing " +
-        "them again.",
+        "likely inside a collection built earlier. Use that collection rather than building " +
+        "it again.",
     );
   });
 
   it("leaves hidden datasets out of the error when they would not form the collection", async () => {
     const other = [{ id: "x", name: "notes.txt", extension: "txt", visible: false }];
     const { message } = await refused(other, { include: "*.fastq.gz" });
-    expect(message).toBe("Nothing was organized: no visible datasets formed a list collection.");
+    expect(message).toBe("No collection was built: no visible datasets formed a list collection.");
   });
 
   it("reports building nothing as a failure, with what did not match", async () => {
     await refused([]);
     const lone = [{ id: "a", name: "sample_A.fastq.gz", extension: "fastqsanger.gz" }];
-    const { message } = await refused(lone, { structure: "paired" });
+    const { message } = await refused(lone, { collectionType: "paired" });
     expect(message).toContain("Unpaired (1): sample_A.fastq.gz.");
   });
 
@@ -309,18 +315,18 @@ const WITH_HIDDEN = [
 
 describe("hidden and deleted items", () => {
   it("does not collect a hidden copy beside the dataset it copies", async () => {
-    const body = built((await run(WITH_HIDDEN, { structure: "list" })).calls)[0];
+    const body = built((await run(WITH_HIDDEN, { collectionType: "list" })).calls)[0];
     expect(body.element_identifiers.map((e: any) => e.id)).toEqual(["v1", "v2"]);
   });
 
   it("leaves a deleted dataset out", async () => {
-    const body = built((await run(WITH_HIDDEN, { structure: "list" })).calls)[0];
+    const body = built((await run(WITH_HIDDEN, { collectionType: "list" })).calls)[0];
     expect(body.element_identifiers.map((e: any) => e.id)).not.toContain("d1");
   });
 
   it("retypes only what the user can see", async () => {
     const [body] = bulks(
-      (await run(WITH_HIDDEN, { structure: "list", datatype: "fasta.gz" })).calls,
+      (await run(WITH_HIDDEN, { collectionType: "list", datatype: "fasta.gz" })).calls,
       "change_datatype",
     );
     expect(body.items.map((i: any) => i.id)).toEqual(["v1", "v2"]);
@@ -339,7 +345,7 @@ const history = (pairs: number, ext = "fasta.gz") =>
   ).flat();
 
 const runScale = (pairs: number, inputs: Record<string, unknown>, ext = "fasta.gz") =>
-  run(history(pairs, ext), { include: "*", structure: "auto", ...inputs });
+  run(history(pairs, ext), { include: "*", collectionType: "auto", ...inputs });
 
 describe("scale", () => {
   it("brings every pair to the collection exactly once", async () => {
@@ -414,7 +420,7 @@ describe("preview", () => {
     expect(ops(calls)).toEqual(["contents"]);
   });
 
-  it("shows the structure, the pairs and what it would retype", async () => {
+  it("shows the collection type, the pairs and what it would retype", async () => {
     const summary = summarize(
       (await run([...SRA, ...ZIPPED.slice(0, 1)], { preview: true, datatype: "fastqsanger.gz" }))
         .state,
@@ -459,17 +465,17 @@ describe("preview", () => {
 
 describe("as a galaxy-ops operation", () => {
   it("is a write op in the collections domain", () => {
-    expect(organizeDatasetsOp.readOnly).toBe(false);
-    expect(organizeDatasetsOp.domain).toBe("collections");
+    expect(buildCollectionOp.readOnly).toBe(false);
+    expect(buildCollectionOp.domain).toBe("collections");
   });
 
   it("projects the summary into the envelope's data", async () => {
     const { ctx } = fakeContext(SRA);
-    const envelope = await runWithEnvelope(organizeDatasetsOp, args({}) as never, ctx);
+    const envelope = await runWithEnvelope(buildCollectionOp, args({}) as never, ctx);
     expect(envelope.success).toBe(true);
     expect(envelope.data).toEqual({
-      collection: { id: "hdca1", name: "reads", type: "list:paired", elements: 2 },
-      unpaired: { id: null, count: 0, names: [] },
+      collection: { id: "hdca1", hid: 7, name: "reads", type: "list:paired", elements: 2 },
+      unpaired: { count: 0, names: [] },
       out_of_scope: { count: 0, names: [] },
       datatype: null,
     });
@@ -478,7 +484,7 @@ describe("as a galaxy-ops operation", () => {
   it("carries a refusal's sentence as the envelope's message", async () => {
     const { ctx } = fakeContext(SRA);
     const envelope = await runWithEnvelope(
-      organizeDatasetsOp,
+      buildCollectionOp,
       args({ datatype: "fastqsanger" }) as never,
       ctx,
     );
@@ -488,9 +494,52 @@ describe("as a galaxy-ops operation", () => {
 
   it("applies its defaults when the caller leaves them out", async () => {
     const { ctx, calls } = fakeContext(SRA);
-    await organizeDatasets({ historyId: "h1" } as Parameters<typeof organizeDatasets>[0], ctx);
+    await buildCollection({ historyId: "h1" } as Parameters<typeof buildCollection>[0], ctx);
     const [body] = calls.filter((c) => c.op === "collection").map((c) => c.body);
     expect(body.name).toBe("Collection");
     expect(body.collection_type).toBe("list:paired");
+  });
+});
+
+describe("selection by dataset_ids", () => {
+  it("builds from the selected datasets only", async () => {
+    const { calls } = await run(MESSY, { datasetIds: ["ds0", "ds1"] });
+    const [body] = built(calls);
+    expect(body.element_identifiers.map((e: any) => e.name)).toEqual(["SRR1001"]);
+  });
+
+  it("ignores everything else in the history, as a builder's selection does", async () => {
+    const { state } = await run(MESSY, { datasetIds: SRA.map((d) => d.id) });
+    expect(summarize(state).unpaired.count).toBe(0);
+    expect(summarize(state).out_of_scope.count).toBe(0);
+  });
+
+  it("refuses ids that are not visible datasets of the history, before writing", async () => {
+    const { calls, message } = await refused(SRA, { datasetIds: ["ds0", "nope"] });
+    expect(message).toBe(
+      "dataset_ids holds ids that are not visible items of this history. Not found (1): nope.",
+    );
+    expect(ops(calls)).toEqual(["contents"]);
+  });
+});
+
+describe("mixed datatypes", () => {
+  const MIXED = [
+    { id: "f", name: "genome.fasta", extension: "fasta", history_content_type: "dataset" },
+    { id: "g", name: "genes.gff3", extension: "gff3", history_content_type: "dataset" },
+  ];
+
+  it("builds a list of mixed datatypes and says so, as Galaxy's list builder does", async () => {
+    const { calls, state } = await run(MIXED, { collectionType: "list" });
+    expect(built(calls)).toHaveLength(1);
+    expect(summarize(state).note).toBe(
+      "The collection mixes datatypes (fasta, gff3). Galaxy allows this, but a list generally " +
+        "holds datasets of one datatype.",
+    );
+  });
+
+  it("says nothing when the members share a datatype", async () => {
+    const typed = SRA.map((d) => ({ ...d, extension: "fastqsanger.gz" }));
+    expect(summarize((await run(typed)).state)).not.toHaveProperty("note");
   });
 });

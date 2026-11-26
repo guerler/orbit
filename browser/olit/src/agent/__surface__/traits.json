@@ -414,7 +414,7 @@
     "destructiveWhen": false
   },
   {
-    "name": "organize_datasets",
+    "name": "build_collection",
     "capability": "write",
     "requires": null,
     "settled": false,

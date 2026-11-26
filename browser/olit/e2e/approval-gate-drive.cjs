@@ -3,7 +3,7 @@
 // With Galaxy unreachable, Olit does not start, so nothing reaches the model; this is asserted
 // by counting calls on the far side, not by trusting the UI.
 //
-// The catalog takes no part in that decision: it gates organize_datasets and
+// The catalog takes no part in that decision: it gates build_collection and
 // charting, and no Galaxy tool reads it. So a plan is approved both when nothing has asked for
 // the catalog and after the catalog has been asked for and failed.
 const { chromium } = require("playwright");
@@ -67,11 +67,11 @@ async function waitFor(page, fn, ms, arg) {
     check("the approved turn was sent", afterAllowed > beforeAllowed,
           `${beforeAllowed} -> ${afterAllowed} provider calls`);
 
-    // Now run a process, which fails here: the stub serves none of what it reads.
+    // Now run an operation, which fails here: the stub serves none of what it reads.
     // The approved turn above answered with another plan card, so count from what is on screen,
     // once that card is there: answered() only waits for the provider call, and a card that
     // lands after the count passes for the new one until the next message settles it.
-    await fetch(`${STUB}/__script?name=plan-after-process`);
+    await fetch(`${STUB}/__script?name=plan-after-operation`);
     check("the approved turn answered with a plan",
           await waitFor(page, () => !!document.querySelector(
               ".plan-draft-card:not(.approved):not(.rejected):not(.answered)"), 120000));
@@ -80,7 +80,7 @@ async function waitFor(page, fn, ms, arg) {
     await page.click("#send-btn");
     const recarded = await waitFor(
         page, (n) => document.querySelectorAll(".plan-draft-approve").length > n, 180000, cards);
-    check("plan draft card offered after a process", recarded);
+    check("plan draft card offered after an operation", recarded);
     if (!recarded) {
         console.log(logs.slice(-8).join("\n"));
         await browser.close();
@@ -93,9 +93,9 @@ async function waitFor(page, fn, ms, arg) {
     const after = await calls();
 
     const failedBody = await page.evaluate(() => document.body.innerText);
-    check("a failed process does not refuse the plan",
+    check("a failed operation does not refuse the plan",
           !/nothing in this plan can run/i.test(failedBody),
-          /nothing in this plan can run/i.test(failedBody) ? "refused after the process" : "approval proceeded");
+          /nothing in this plan can run/i.test(failedBody) ? "refused after the operation" : "approval proceeded");
     check("the approved turn was sent", after > before, `${before} -> ${after} provider calls`);
 
     // Galaxy itself does not answer, from a fresh load.

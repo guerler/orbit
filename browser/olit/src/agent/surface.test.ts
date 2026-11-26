@@ -160,7 +160,7 @@ describe("the composed tools", () => {
         calls: [
           {
             name: "run_tool",
-            args: { history_id: "h1", tool_id: "organize_datasets", inputs: {} },
+            args: { history_id: "h1", tool_id: "build_collection", inputs: {} },
           },
         ],
       },
@@ -170,7 +170,7 @@ describe("the composed tools", () => {
         ],
       },
       { calls: [{ name: "search_tools_by_name", args: { query: "vega_dataset" } }] },
-      { calls: [{ name: "search_tools_by_name", args: { query: "organize_datasets" } }] },
+      { calls: [{ name: "search_tools_by_name", args: { query: "build_collection" } }] },
       { text: "ok" },
     ]);
     await expect(pretty(results(result.entries))).toMatchFileSnapshot(

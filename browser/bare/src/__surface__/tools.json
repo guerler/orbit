@@ -45,7 +45,7 @@
   "list_page_revisions",
   "get_page_revision",
   "revert_page_revision",
-  "organize_datasets",
+  "build_collection",
   "download_dataset",
   "upload_file",
   "recommend_biocontainer",

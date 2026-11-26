@@ -13,18 +13,25 @@ export const BATCH = 1000;
 const NAME_SAMPLE = 10;
 
 type Dataset = Record<string, any>;
-type Organized = Record<string, any>;
+type Built = Record<string, any>;
 
 const input = {
   historyId: z.string(),
-  collectionName: z.string().default("Collection"),
+  name: z.string().default("Collection"),
+  datasetIds: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "The visible datasets to build from, by id, as a selection in Galaxy's collection " +
+        "builders. Without it, every visible dataset matching `include` is considered.",
+    ),
   include: z.string().default("*"),
-  structure: z
+  collectionType: z
     .string()
     .default("auto")
     .describe(
-      '"auto" pairs on evidence, "paired" (or Galaxy\'s own "list:paired") forces pairing, ' +
-        '"list" forces a flat list.',
+      '"auto" pairs on evidence, "list:paired" (or "paired") forces pairing, "list" forces a ' +
+        "flat list.",
     ),
   datatype: z
     .string()
@@ -39,8 +46,8 @@ const input = {
     .boolean()
     .default(false)
     .describe(
-      "Report the structure, pairs, unpaired files and ambiguities it would build, and write " +
-        "nothing.",
+      "Report the collection type, pairs, unpaired files and ambiguities it would build, and " +
+        "write nothing.",
     ),
   sampleRegex: z
     .string()
@@ -54,9 +61,10 @@ const input = {
 
 type In = {
   historyId: string;
-  collectionName?: string | null;
+  name?: string | null;
+  datasetIds?: string[] | null;
   include?: string | null;
-  structure?: string | null;
+  collectionType?: string | null;
   datatype?: string | null;
   tags?: string[] | null;
   preview?: boolean | null;
@@ -136,18 +144,31 @@ const listed = (label: string, names: string[]) =>
       `${names.length > NAME_SAMPLE ? ", ..." : ""}.`
     : "";
 
-async function run(i: In, ctx: GalaxyContext): Promise<Organized> {
+async function run(i: In, ctx: GalaxyContext): Promise<Built> {
   const historyId = i.historyId;
-  const structure = i.structure ?? "auto";
+  const structure = i.collectionType ?? "auto";
   const include = i.include ?? "*";
   const datatype = i.datatype ?? undefined;
   const sampleRegex = i.sampleRegex ?? undefined;
+  const ids = i.datasetIds?.length ? new Set(i.datasetIds) : null;
+  const selected = (datasets: Dataset[]) =>
+    ids ? datasets.filter((d) => ids.has(d.id)) : datasets;
 
-  const visible = await contents(ctx, historyId, "True");
+  const visible = selected(await contents(ctx, historyId, "True"));
+  if (ids) {
+    const found = new Set(visible.map((d) => d.id));
+    const missing = [...ids].filter((id) => !found.has(id));
+    if (missing.length) {
+      throw new GalaxyValidationError(
+        "dataset_ids holds ids that are not visible items of this history." +
+          listed("Not found", missing),
+      );
+    }
+  }
   const grouping = groupDatasets({ datasets: visible, structure, include, sampleRegex });
   if (grouping.empty) {
     const hidden = groupDatasets({
-      datasets: await contents(ctx, historyId, "False"),
+      datasets: selected(await contents(ctx, historyId, "False")),
       structure,
       include,
       sampleRegex,
@@ -156,9 +177,9 @@ async function run(i: In, ctx: GalaxyContext): Promise<Organized> {
       ? ""
       : ` ${hidden.items.length} hidden dataset(s) would form a ${hidden.structure} ` +
         "collection; they are most likely inside a collection built earlier. Use that " +
-        "collection rather than organizing them again.";
+        "collection rather than building it again.";
     throw new GalaxyValidationError(
-      `Nothing was organized: no visible datasets formed a ${grouping.structure} collection.` +
+      `No collection was built: no visible datasets formed a ${grouping.structure} collection.` +
         elsewhere +
         listed("Unpaired", grouping.unmatched) +
         listed("Out of scope", grouping.out_of_scope),
@@ -198,18 +219,14 @@ async function run(i: In, ctx: GalaxyContext): Promise<Organized> {
     }
   }
 
+  // As Galaxy's builders do, datasets left out of the collection stay where they are.
   const built = await collection(
     ctx,
     historyId,
-    i.collectionName ?? "Collection",
+    i.name ?? "Collection",
     grouping.structure,
     grouping.elements,
   );
-
-  // Files that did not pair get their own collection rather than being dropped.
-  const leftovers = grouping.has_leftovers
-    ? await collection(ctx, historyId, "Unpaired", "list", grouping.leftovers)
-    : null;
 
   // Tags belong to the collection, which the per-dataset route cannot address.
   if (i.tags?.length) {
@@ -225,7 +242,6 @@ async function run(i: In, ctx: GalaxyContext): Promise<Organized> {
   return {
     grouping,
     collection: built,
-    leftovers,
     batches: Boolean(datatype),
     datatype_queued: pending.length,
     datatype_already_set: datatype ? grouping.items.length - pending.length : 0,
@@ -240,6 +256,17 @@ function sample<T = string>(names: T[] = []) {
   };
 }
 
+/** Galaxy's list builder warns of mixed formats and still builds; so does this. */
+function mixed(grouping: Grouping, datatype: unknown) {
+  return !datatype && grouping.datatypes.length > 1
+    ? {
+        note:
+          `The collection mixes datatypes (${grouping.datatypes.join(", ")}). Galaxy allows ` +
+          "this, but a list generally holds datasets of one datatype.",
+      }
+    : {};
+}
+
 function ambiguity(grouping: Grouping) {
   const { duplicate_mates = [], mixed_markers = [] } = grouping.ambiguity || {};
   return duplicate_mates.length || mixed_markers.length
@@ -248,7 +275,7 @@ function ambiguity(grouping: Grouping) {
 }
 
 /** Counts and a sample of names. The payload itself must never reach the model. */
-export function summarize(state: Organized): Organized {
+export function summarize(state: Built): Built {
   const grouping: Grouping = state.grouping;
   if (state.preview) {
     const pairs = sample(grouping.pairs);
@@ -268,21 +295,23 @@ export function summarize(state: Organized): Organized {
       unpaired: sample(grouping.unmatched),
       out_of_scope: sample(grouping.out_of_scope),
       ...ambiguity(grouping),
+      ...mixed(grouping, state.datatype),
       datatype: state.datatype ? { would_change: state.datatype_pending ?? 0 } : null,
     };
   }
   const built = state.collection || {};
-  const leftovers = state.leftovers || {};
   return {
     collection: {
       id: built.id ?? null,
+      hid: built.hid ?? null,
       name: built.name ?? null,
       type: grouping.structure,
       elements: grouping.elements.length,
     },
-    unpaired: { id: leftovers.id || null, ...sample(grouping.unmatched) },
+    unpaired: sample(grouping.unmatched),
     out_of_scope: sample(grouping.out_of_scope),
     ...ambiguity(grouping),
+    ...mixed(grouping, state.batches),
     datatype: state.batches
       ? {
           queued: state.datatype_queued ?? 0,
@@ -292,21 +321,22 @@ export function summarize(state: Organized): Organized {
   };
 }
 
-export const organizeDatasetsOp: Operation<typeof input, Organized> = {
-  name: "organize_datasets",
+export const buildCollectionOp: Operation<typeof input, Built> = {
+  name: "build_collection",
   domain: "collections",
   summary:
-    "Group loose datasets in a history into a new list or list:paired collection, set the " +
-    "datatype of its elements, and tag it. With preview, report the structure and pairs it " +
-    "would build without writing anything. Use when the user asks to organise, group, or " +
-    "collect loose datasets in a history, such as uploaded files or the contents of an " +
-    "unzipped archive, into a collection; not for filtering, relabelling or restructuring an " +
-    "existing collection, which Galaxy's collection tools do.",
+    "Build a list or list:paired collection from datasets in a history, as Galaxy's " +
+    "collection builders do, pairing mates and naming samples from the file names; " +
+    "optionally set the datatype of its elements and tag it. Datasets left out stay as they " +
+    "are. With preview, report what it would build without writing anything. Use when the " +
+    "user asks to organize, group or collect datasets in a history, such as uploaded files " +
+    "or the contents of an unzipped archive, into a collection; not for filtering, " +
+    "relabeling or restructuring an existing collection, which Galaxy's collection tools do.",
   input,
   readOnly: false,
   run,
   project: (state) => ({ data: summarize(state) }),
 };
 
-export const organizeDatasets = (i: In, ctx: GalaxyContext) =>
-  runOperation(organizeDatasetsOp, i as InputOf<typeof input>, ctx);
+export const buildCollection = (i: In, ctx: GalaxyContext) =>
+  runOperation(buildCollectionOp, i as InputOf<typeof input>, ctx);

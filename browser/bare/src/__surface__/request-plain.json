@@ -1653,8 +1653,8 @@
     {
       "type": "function",
       "function": {
-        "name": "organize_datasets",
-        "description": "Group loose datasets in a history into a new list or list:paired collection, set the datatype of its elements, and tag it. With preview, report the structure and pairs it would build without writing anything. Use when the user asks to organise, group, or collect loose datasets in a history, such as uploaded files or the contents of an unzipped archive, into a collection; not for filtering, relabelling or restructuring an existing collection, which Galaxy's collection tools do.",
+        "name": "build_collection",
+        "description": "Build a list or list:paired collection from datasets in a history, as Galaxy's collection builders do, pairing mates and naming samples from the file names; optionally set the datatype of its elements and tag it. Datasets left out stay as they are. With preview, report what it would build without writing anything. Use when the user asks to organize, group or collect datasets in a history, such as uploaded files or the contents of an unzipped archive, into a collection; not for filtering, relabeling or restructuring an existing collection, which Galaxy's collection tools do.",
         "parameters": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -1662,17 +1662,24 @@
             "history_id": {
               "type": "string"
             },
-            "collection_name": {
+            "name": {
               "default": "Collection",
               "type": "string"
+            },
+            "dataset_ids": {
+              "description": "The visible datasets to build from, by id, as a selection in Galaxy's collection builders. Without it, every visible dataset matching `include` is considered.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             },
             "include": {
               "default": "*",
               "type": "string"
             },
-            "structure": {
+            "collection_type": {
               "default": "auto",
-              "description": "\"auto\" pairs on evidence, \"paired\" (or Galaxy's own \"list:paired\") forces pairing, \"list\" forces a flat list.",
+              "description": "\"auto\" pairs on evidence, \"list:paired\" (or \"paired\") forces pairing, \"list\" forces a flat list.",
               "type": "string"
             },
             "datatype": {
@@ -1687,7 +1694,7 @@
             },
             "preview": {
               "default": false,
-              "description": "Report the structure, pairs, unpaired files and ambiguities it would build, and write nothing.",
+              "description": "Report the collection type, pairs, unpaired files and ambiguities it would build, and write nothing.",
               "type": "boolean"
             },
             "sample_regex": {

@@ -235,15 +235,15 @@ describe("a turn", () => {
         calls: [
           {
             name: "run_tool",
-            args: { history_id: "h1", tool_id: "organize_datasets", inputs: {} },
+            args: { history_id: "h1", tool_id: "build_collection", inputs: {} },
           },
         ],
       },
-      { calls: [{ name: "search_tools_by_name", args: { query: "organize_datasets" } }] },
+      { calls: [{ name: "search_tools_by_name", args: { query: "build_collection" } }] },
       { text: "ok" },
     ]);
     const [first, second] = results(result.entries).map((m) => contentText(m.content));
-    expect(first).toContain("'organize_datasets' is a built-in tool, not a Galaxy tool");
+    expect(first).toContain("'build_collection' is a built-in tool, not a Galaxy tool");
     expect(second).toContain("the tool catalog does not hold it");
   });
 
@@ -255,11 +255,11 @@ describe("a turn", () => {
     expect(names).not.toContain("run_python");
   });
 
-  it("withholds organize_datasets, a write operation, from a read-only grant", async () => {
+  it("withholds build_collection, a write operation, from a read-only grant", async () => {
     const { requests } = await turn([{ text: "ok" }], { capabilities: ["llm", "read"] });
     const names = requests[0].tools.map((t: { function: { name: string } }) => t.function.name);
     expect(names).toContain("get_histories");
-    expect(names).not.toContain("organize_datasets");
+    expect(names).not.toContain("build_collection");
   });
 
   it("does not replay an earlier turn's reasoning as something the model said", async () => {

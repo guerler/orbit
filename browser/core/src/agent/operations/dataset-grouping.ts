@@ -35,10 +35,9 @@ export interface Grouping {
   pairs: Pair[];
   ambiguity: { duplicate_mates: string[]; mixed_markers: string[] };
   items: { id?: string; history_content_type: string }[];
-  leftovers: Element[];
+  datatypes: string[];
   unmatched: string[];
   out_of_scope: string[];
-  has_leftovers: boolean;
   empty: boolean;
 }
 
@@ -231,7 +230,7 @@ export function groupDatasets({
   const shape = structure === "list:paired" ? "paired" : structure || "auto";
   if (!["auto", "paired", "list"].includes(shape)) {
     throw new GalaxyValidationError(
-      `structure must be "auto", "paired" or "list", not ${JSON.stringify(structure)}`,
+      `collection_type must be "auto", "list" or "list:paired", not ${JSON.stringify(structure)}`,
     );
   }
   const rows = identify(datasets || [], nameField, compile(sampleRegex ?? undefined));
@@ -291,9 +290,18 @@ export function groupDatasets({
   }
   const explicitSeen = [...complete.values()].some((m) => [...m.values()].some(([, , e]) => e));
   const readsPaired = [...complete.values()].some((m) => [...m.values()].every(([, , , r]) => r));
-  // Two independent guards: more than half the files sit in complete pairs, and the marker means
-  // what we think.
-  const majority = complete.size * 2 > inScope.length / 2;
+  // Two independent guards: more than half the files of the paired files' datatypes sit in
+  // complete pairs, so unrelated datasets in the history do not outvote them, and the marker
+  // means what we think.
+  const kind = (d: Dataset) => {
+    const base = parts(d[nameField] || "")[1];
+    return String(d.extension || base.slice(stem(base).length).toLowerCase());
+  };
+  const pairedKinds = new Set(
+    [...complete.values()].flatMap((m) => [...m.values()].map(([, d]) => kind(d))),
+  );
+  const peers = inScope.filter((r) => pairedKinds.has(kind(r.dataset))).length;
+  const majority = complete.size * 2 > peers / 2;
   const evidenced = explicitSeen || readsPaired || complete.size >= 2;
 
   if (shape === "paired" || (shape === "auto" && complete.size && majority && evidenced)) {
@@ -312,14 +320,25 @@ export function groupDatasets({
       forward: complete.get(sample)!.get("forward")![0],
       reverse: complete.get(sample)!.get("reverse")![0],
     }));
-    const leftovers = [...unpaired, ...half].sort((a, b) => byCodePoint(a[0], b[0]));
-    return result("list:paired", inferred, elements, named, ambiguity, leftovers, outOfScope);
+    const members = [...complete.values()].flatMap((m) => [...m.values()].map((r) => r[1]));
+    const unmatched = [...unpaired, ...half].map(([name]) => name).sort(byCodePoint);
+    return result(
+      "list:paired",
+      inferred,
+      elements,
+      named,
+      ambiguity,
+      members,
+      unmatched,
+      outOfScope,
+    );
   }
 
   const flat = inScope
     .map((r): Entry => [r.file, r.dataset])
     .sort((a, b) => byCodePoint(a[0], b[0]));
-  return result("list", inferred, flatElements(flat), [], ambiguity, [], outOfScope);
+  const members = flat.map(([, d]) => d);
+  return result("list", inferred, flatElements(flat), [], ambiguity, members, [], outOfScope);
 }
 
 function flatElements(entries: Entry[]): Element[] {
@@ -347,7 +366,8 @@ function result(
   elements: Element[],
   pairs: Pair[],
   ambiguity: Grouping["ambiguity"],
-  leftovers: Entry[],
+  members: Dataset[],
+  unmatched: string[],
   outOfScope: Row[],
 ): Grouping {
   return {
@@ -357,10 +377,9 @@ function result(
     pairs,
     ambiguity,
     items: items(placed(elements)),
-    leftovers: flatElements(leftovers),
-    unmatched: leftovers.map(([name]) => name),
+    datatypes: [...new Set(members.map((d) => d.extension).filter(Boolean))].sort(byCodePoint),
+    unmatched,
     out_of_scope: outOfScope.map((r) => r.file),
-    has_leftovers: leftovers.length > 0,
     empty: elements.length === 0,
   };
 }

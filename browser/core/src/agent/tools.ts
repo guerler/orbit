@@ -14,7 +14,7 @@ import { annotating, galaxyTools, OPS_POLICY } from "./galaxy-tools";
 import { gtnTools } from "./gtn";
 import { notebookTools } from "./notebook";
 import { opsTools, type Annotate } from "./ops";
-import { organizeDatasetsOp } from "./operations/organize-datasets";
+import { buildCollectionOp } from "./operations/build-collection";
 import { pythonTool } from "./python";
 import { flavoredSkills, skillsTool } from "./skills";
 import { fail, type Context, type AgentTool } from "./tool";
@@ -63,7 +63,7 @@ function placingArtifacts(tool: AgentTool): AgentTool {
 }
 
 /** Galaxy operations written to galaxy-ops' conventions that galaxy-ops does not ship yet. */
-const LOCAL_OPERATIONS: AnyOperation[] = [organizeDatasetsOp as AnyOperation];
+const LOCAL_OPERATIONS: AnyOperation[] = [buildCollectionOp as AnyOperation];
 
 /** Every tool the agent can offer, before a session filters them by capability. */
 export function agentTools(skills = flavoredSkills(), flavor: AgentFlavor = {}): AgentTool[] {

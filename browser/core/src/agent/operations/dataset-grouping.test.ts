@@ -50,18 +50,35 @@ describe("pairing", () => {
     expect(out.unmatched).toEqual([]);
   });
 
-  it("names a half pair as a leftover", () => {
+  it("names a half pair as unpaired", () => {
     const out = groupDatasets({ datasets: names(["s1_R1.fq.gz", "s1_R2.fq.gz", "s2_R1.fq.gz"]) });
     expect(out.structure).toBe("list:paired");
     expect(elementNames(out)).toEqual(["s1"]);
     expect(out.unmatched).toEqual(["s2_R1.fq.gz"]);
-    expect(out.has_leftovers).toBe(true);
   });
 
   it("makes a non-read file a leftover", () => {
     const out = groupDatasets({ datasets: names(["a_R1.fastq.gz", "a_R2.fastq.gz", "notes.txt"]) });
     expect(out.structure).toBe("list:paired");
     expect(out.unmatched).toEqual(["notes.txt"]);
+  });
+
+  it("does not let unrelated datatypes outvote the pairs in a mixed history", () => {
+    const out = groupDatasets({
+      datasets: [
+        { id: "1", name: "S1_1.fastq", extension: "fastqsanger" },
+        { id: "2", name: "S1_2.fastq", extension: "fastqsanger" },
+        { id: "3", name: "S2_1.fastq", extension: "fastqsanger" },
+        { id: "4", name: "S2_2.fastq", extension: "fastqsanger" },
+        { id: "5", name: "S3_1.fastq", extension: "fastqsanger" },
+        { id: "6", name: "reference.fasta", extension: "fasta" },
+        { id: "7", name: "genes.gff3", extension: "gff3" },
+        { id: "8", name: "peaks.bed", extension: "bed" },
+      ],
+    });
+    expect(out.structure).toBe("list:paired");
+    expect(elementNames(out)).toEqual(["S1", "S2"]);
+    expect(out.unmatched).toEqual(["S3_1.fastq", "genes.gff3", "peaks.bed", "reference.fasta"]);
   });
 
   it("pairs only when more than half the files sit in complete pairs", () => {
@@ -129,11 +146,10 @@ describe("scope", () => {
     });
     expect(out.out_of_scope).toEqual(["notes.txt"]);
     expect(out.unmatched).toEqual([]);
-    expect(out.has_leftovers).toBe(false);
     expect(out.items).toHaveLength(2);
   });
 
-  it("keeps leftovers out of items so a datatype write reaches only the collection", () => {
+  it("keeps unpaired datasets out of items so a datatype write reaches only the collection", () => {
     const out = groupDatasets({ datasets: names(["s1_R1.fq.gz", "s1_R2.fq.gz", "s2_R1.fq.gz"]) });
     expect(out.items.map((i) => i.id)).toEqual(["id_0", "id_1"]);
   });
@@ -321,9 +337,9 @@ describe("structure names", () => {
     expect(groupDatasets({ datasets, structure: "list:paired" }).structure).toBe("list:paired");
   });
 
-  it("refuses an unknown structure rather than quietly flattening", () => {
+  it("refuses an unknown collection type rather than quietly flattening", () => {
     expect(() => groupDatasets({ datasets: [], structure: "nonsense" })).toThrow(
-      'structure must be "auto", "paired" or "list", not "nonsense"',
+      'collection_type must be "auto", "list" or "list:paired", not "nonsense"',
     );
   });
 });
@@ -392,5 +408,31 @@ describe("what a preview shows", () => {
   it("flags pairs marked by different conventions", () => {
     const out = groupDatasets({ datasets: names([...SRA, ...ILLUMINA]) });
     expect(out.ambiguity.mixed_markers).toEqual(["1/2", "R1/R2"]);
+  });
+});
+
+describe("member datatypes", () => {
+  it("names the datatypes of the collection's members only", () => {
+    const out = groupDatasets({
+      datasets: [
+        { id: "a", name: "s_1.fastq.gz", extension: "fastqsanger.gz" },
+        { id: "b", name: "s_2.fastq.gz", extension: "fastqsanger.gz" },
+        { id: "c", name: "genome.fasta", extension: "fasta" },
+      ],
+    });
+    expect(out.structure).toBe("list:paired");
+    expect(out.datatypes).toEqual(["fastqsanger.gz"]);
+    expect(out.unmatched).toEqual(["genome.fasta"]);
+  });
+
+  it("names every datatype a flat list mixes, as Galaxy's list builder warns", () => {
+    const out = groupDatasets({
+      datasets: [
+        { id: "a", name: "a.fasta", extension: "fasta" },
+        { id: "b", name: "b.gff3", extension: "gff3" },
+      ],
+      structure: "list",
+    });
+    expect(out.datatypes).toEqual(["fasta", "gff3"]);
   });
 });

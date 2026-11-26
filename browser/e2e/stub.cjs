@@ -181,11 +181,11 @@ const delegatedOps = [
     { id: "call_5", type: "function", function: { name: "create_history", arguments: JSON.stringify({ history_name: "olit e2e ops" }) } },
 ];
 
-// A process that fails here: the stub answers history contents with a history, not a list.
-const runAProcess = [{
+// An operation that fails here: the stub answers history contents with a history, not a list.
+const runAnOperation = [{
     id: "call_1",
     type: "function",
-    function: { name: "organize_datasets", arguments: JSON.stringify({ history_id: "__test__" }) },
+    function: { name: "build_collection", arguments: JSON.stringify({ history_id: "__test__" }) },
 }];
 
 const createVisualization = [{
@@ -538,12 +538,12 @@ const server = http.createServer(async (req, res) => {
             await new Promise((r) => setTimeout(r, 60000));
             return answer(message("too late"));
         }
-        if (script === "plan" || script === "plan-after-process") {
-            // A drive that needs a process to have failed takes it before asking for a plan.
+        if (script === "plan" || script === "plan-after-operation") {
+            // A drive that needs an operation to have failed takes it before asking for a plan.
             const msgs = body.messages || [];
             const asked = msgs.some((m) => m.role === "tool");
-            if (script === "plan-after-process" && !asked) {
-                return answer(message("", runAProcess));
+            if (script === "plan-after-operation" && !asked) {
+                return answer(message("", runAnOperation));
             }
             // A plan card, so the driver has an Approve button to click.
             return answer(message(
