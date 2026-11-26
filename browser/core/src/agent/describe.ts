@@ -271,5 +271,6 @@ export async function describe(layout: DescribeLayout, flavor: AgentFlavor) {
     follow_ups: followUps(),
     skills: skills(join(core, SOURCE, "skills", "galaxy-skills"), join(core, "skills.lock.json")),
     record: { starter: STARTER, resume_tool: "notebook_resume" },
+    session_config: { withhold_tools: "names of tools the session leaves out" },
   };
 }

@@ -262,6 +262,20 @@ describe("a turn", () => {
     expect(names).not.toContain("build_collection");
   });
 
+  it("leaves out the tools a session withholds by name", async () => {
+    const { requests } = await turn([{ text: "ok" }], { withhold_tools: ["build_collection"] });
+    const names = requests[0].tools.map((t: { function: { name: string } }) => t.function.name);
+    expect(names).toContain("create_history");
+    expect(names).not.toContain("build_collection");
+  });
+
+  it("refuses to withhold a tool it does not have", async () => {
+    server([{ text: "ok" }]);
+    await expect(open({ withhold_tools: ["no_such_tool"] })).rejects.toThrow(
+      "cannot withhold unknown tools: no_such_tool",
+    );
+  });
+
   it("does not replay an earlier turn's reasoning as something the model said", async () => {
     const { requests } = server([{ reasoning: "PRIVATE-THOUGHT", text: "Hello." }, { text: "ok" }]);
     const session = await open();

@@ -40,7 +40,7 @@ import {
   type SessionDocument,
 } from "./saved";
 import { flavoredSkills } from "./skills";
-import type { Capability, Python } from "./tool";
+import type { AgentTool, Capability, Python } from "./tool";
 import { galaxyOps, agentTools, type AgentFlavor } from "./tools";
 import { galaxyWatch, WATCH_TASK, type Watched } from "./watch";
 
@@ -86,6 +86,8 @@ export interface RuntimeConfig extends LlmConfig {
   ai_compaction?: boolean;
   capabilities?: Capability[];
   max_steps?: number;
+  /** Tools a session leaves out, by name, as an evaluation without them needs. */
+  withhold_tools?: string[];
 }
 
 export interface RuntimeOptions {
@@ -112,6 +114,13 @@ export interface Placement {
    * nothing of it: its identity and record are durable, its conversation was not.
    */
   record?: RecordSummary;
+}
+
+/** The tools without the named ones; a name the agent does not have is refused. */
+export function withholding(tools: AgentTool[], names: string[]): AgentTool[] {
+  const unknown = names.filter((name) => !tools.some((t) => t.name === name));
+  if (unknown.length) throw new Error(`cannot withhold unknown tools: ${unknown.join(", ")}`);
+  return tools.filter((t) => !names.includes(t.name));
 }
 
 const uuid = () => globalThis.crypto?.randomUUID?.() || `s-${Date.now()}-${Math.random()}`;
@@ -197,7 +206,7 @@ export class Runtime {
         return conversation ? artifactsIn(conversation, ctx) : [];
       },
       watched: (id, ctx) => watchedBy(harness!, id, ctx),
-      tools: agentTools(skills, flavor),
+      tools: withholding(agentTools(skills, flavor), config.withhold_tools ?? []),
       capabilities,
       secrets: () =>
         [current.apiKey, config.galaxy_key].filter((s): s is string => typeof s === "string"),
