@@ -414,6 +414,15 @@
     "destructiveWhen": false
   },
   {
+    "name": "organize_datasets",
+    "capability": "write",
+    "requires": null,
+    "settled": false,
+    "polls": null,
+    "destructive": false,
+    "destructiveWhen": false
+  },
+  {
     "name": "download_dataset",
     "capability": "read",
     "requires": null,
@@ -543,18 +552,6 @@
     "name": "skills_fetch",
     "capability": null,
     "requires": null,
-    "settled": false,
-    "polls": null,
-    "destructive": false,
-    "destructiveWhen": false
-  },
-  {
-    "name": "organize_datasets",
-    "capability": "write",
-    "requires": [
-      "read",
-      "write"
-    ],
     "settled": false,
     "polls": null,
     "destructive": false,

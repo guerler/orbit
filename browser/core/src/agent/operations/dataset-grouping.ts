@@ -1,4 +1,4 @@
-import { quote } from "../quote";
+import { GalaxyValidationError } from "@galaxyproject/galaxy-ops/browser";
 
 type Dataset = Record<string, any>;
 type Mate = "forward" | "reverse";
@@ -8,7 +8,9 @@ interface Row {
   sample: string;
   file: string;
   mate?: Mate;
+  marker?: string;
   explicit: boolean;
+  reads: boolean;
   dataset: Dataset;
 }
 
@@ -20,9 +22,18 @@ interface Element {
   element_identifiers?: Element[];
 }
 
+export interface Pair {
+  sample: string;
+  forward: string;
+  reverse: string;
+}
+
 export interface Grouping {
   structure: "list" | "list:paired";
+  inferred: boolean;
   elements: Element[];
+  pairs: Pair[];
+  ambiguity: { duplicate_mates: string[]; mixed_markers: string[] };
   items: { id?: string; history_content_type: string }[];
   leftovers: Element[];
   unmatched: string[];
@@ -34,7 +45,8 @@ export interface Grouping {
 /** A mate marker is its own segment. */
 const EXPLICIT_MATE = /^(?:R|read)([12])$/i;
 const WORD_MATE = /^(?:(forward|fwd)|(reverse|rev))$/i;
-const WEAK_MATE = /^([12])$/;
+const WEAK_MATE = /^([12FR])$/;
+const READS = /\.(?:fastq|fq)(?:\.(?:gz|bz2))?$/i;
 const SEP = /[._\-\s]+/;
 /** Extensions stripped before pairing, so sample_1.fastq.gz pairs on "sample". */
 const STRIP = [".gz", ".bz2", ".zip", ".fastq", ".fq", ".fasta", ".fa", ".txt", ".tabular"];
@@ -68,47 +80,53 @@ function stem(name: string): string {
   return out;
 }
 
-/** [mate, explicit] for one path segment. */
-function mateOf(segment: string): [Mate | undefined, boolean] {
+/** [mate, explicit, marker] for one path segment. */
+function mateOf(segment: string): [Mate | undefined, boolean, string | undefined] {
   let m = EXPLICIT_MATE.exec(segment);
   if (m) {
-    return [m[1] === "1" ? "forward" : "reverse", true];
+    return [m[1] === "1" ? "forward" : "reverse", true, "R1/R2"];
   }
   m = WORD_MATE.exec(segment);
   if (m) {
-    return [m[1] ? "forward" : "reverse", true];
+    return [m[1] ? "forward" : "reverse", true, "forward/reverse"];
   }
   m = WEAK_MATE.exec(segment);
   if (m) {
-    return [m[1] === "1" ? "forward" : "reverse", false];
+    const digit = /\d/.test(m[1]);
+    return [m[1] === "1" || m[1] === "F" ? "forward" : "reverse", false, digit ? "1/2" : "F/R"];
   }
-  return [undefined, false];
+  return [undefined, false, undefined];
 }
 
-/** [sample, mate, explicit] for a read name; a caller's pattern counts as explicit evidence. */
+/** [sample, mate, explicit, marker] for a read name; a caller's pattern counts as explicit evidence. */
 function splitMate(
   name: string,
   pattern?: RegExp,
   path?: string,
-): [string, Mate | undefined, boolean] {
+): [string, Mate | undefined, boolean, string | undefined] {
   const base = stem(name);
   if (pattern) {
     const found = pattern.exec(path ?? name);
     if (!found) {
-      return [base, undefined, false];
+      return [base, undefined, false, undefined];
     }
     const groups = found.groups ?? {};
-    return [groups.sample || base, mateOf(groups.mate || "")[0], true];
+    if (groups.mate === undefined) {
+      const [, mate, explicit, marker] = splitMate(name);
+      return [groups.sample || base, mate, explicit, marker];
+    }
+    return [groups.sample || base, mateOf(groups.mate)[0], true, "sample_regex"];
   }
   const segments = base.split(SEP);
   // Never the first segment for a bare 1/2: a leading digit is a sample number.
   for (let i = segments.length - 1; i >= 0; i--) {
-    const [mate, explicit] = mateOf(segments[i]);
+    const [mate, explicit, marker] = mateOf(segments[i]);
     if (mate && (explicit || i > 0)) {
-      return [[...segments.slice(0, i), ...segments.slice(i + 1)].join("_"), mate, explicit];
+      const sample = [...segments.slice(0, i), ...segments.slice(i + 1)].join("_");
+      return [sample, mate, explicit, marker];
     }
   }
-  return [base, undefined, false];
+  return [base, undefined, false, undefined];
 }
 
 /** The caller's Python-style pattern as a RegExp. */
@@ -119,7 +137,9 @@ function compile(sampleRegex?: string): RegExp | undefined {
   try {
     return new RegExp(sampleRegex.replaceAll("(?P<", "(?<").replace(/\(\?P=(\w+)\)/g, "\\k<$1>"));
   } catch (exc) {
-    throw new Error(`sample_regex is not a valid regular expression: ${(exc as Error).message}`);
+    throw new GalaxyValidationError(
+      `sample_regex is not a valid regular expression: ${(exc as Error).message}`,
+    );
   }
 }
 
@@ -128,8 +148,9 @@ function identify(datasets: Dataset[], nameField: string, pattern?: RegExp): Row
   const rows = datasets.map((d) => {
     const raw = String(d[nameField] || d.id);
     const [dirs, base] = parts(raw);
-    const [sample, mate, explicit] = splitMate(base, pattern, raw.replaceAll("\\", "/"));
-    return { dirs, base, sample, mate, explicit, d };
+    const [sample, mate, explicit, marker] = splitMate(base, pattern, raw.replaceAll("\\", "/"));
+    const reads = d.extension ? String(d.extension).startsWith("fastq") : READS.test(base);
+    return { dirs, base, sample, mate, marker, explicit, reads, d };
   });
   const qualify = (values: string[], keys: string[]) => {
     const unique = new Set(keys).size === keys.length;
@@ -147,7 +168,9 @@ function identify(datasets: Dataset[], nameField: string, pattern?: RegExp): Row
     sample: samples[i],
     file: files[i],
     mate: r.mate,
+    marker: r.marker,
     explicit: r.explicit,
+    reads: r.reads,
     dataset: r.d,
   }));
 }
@@ -196,7 +219,7 @@ export interface GroupOptions {
  * Partition datasets into collection elements plus whatever did not fit.
  *
  * `auto` pairs only on evidence: an explicit marker (R1/read2/forward) on its own, a bare
- * 1/2 only once a second sample shows the same convention.
+ * 1/2 or F/R when both mates are reads or once a second sample shows the same convention.
  */
 export function groupDatasets({
   datasets = [],
@@ -207,7 +230,9 @@ export function groupDatasets({
 }: GroupOptions = {}): Grouping {
   const shape = structure === "list:paired" ? "paired" : structure || "auto";
   if (!["auto", "paired", "list"].includes(shape)) {
-    throw new Error(`structure must be "auto", "paired" or "list", not ${quote(structure)}`);
+    throw new GalaxyValidationError(
+      `structure must be "auto", "paired" or "list", not ${JSON.stringify(structure)}`,
+    );
   }
   const rows = identify(datasets || [], nameField, compile(sampleRegex ?? undefined));
 
@@ -220,25 +245,42 @@ export function groupDatasets({
     (isDataset && matches(name, include ?? undefined) ? inScope : outOfScope).push(row);
   }
 
-  const pairs = new Map<string, Map<Mate, [string, Dataset, boolean][]>>();
+  const pairs = new Map<string, Map<Mate, [string, Dataset, boolean, boolean, string?][]>>();
   const unpaired: Entry[] = [];
-  for (const { sample, file, mate, explicit, dataset } of inScope) {
+  for (const { sample, file, mate, marker, explicit, reads, dataset } of inScope) {
     if (!mate) {
       unpaired.push([file, dataset]);
       continue;
     }
     const mates = pairs.get(sample) ?? new Map();
     pairs.set(sample, mates);
-    mates.set(mate, [...(mates.get(mate) ?? []), [file, dataset, explicit]]);
+    mates.set(mate, [...(mates.get(mate) ?? []), [file, dataset, explicit, reads, marker]]);
   }
 
   // Exactly one dataset per mate, or the marker was a run number rather than a mate.
-  const complete = new Map<string, Map<Mate, [string, Dataset, boolean]>>();
+  const complete = new Map<string, Map<Mate, [string, Dataset, boolean, boolean, string?]>>();
   for (const [sample, mates] of pairs) {
     if (mates.size === 2 && [...mates.values()].every((r) => r.length === 1)) {
       complete.set(sample, new Map([...mates].map(([mate, r]) => [mate, r[0]])));
     }
   }
+  const ambiguity = {
+    duplicate_mates: [...pairs]
+      .filter(([, mates]) => [...mates.values()].some((r) => r.length > 1))
+      .map(([sample]) => sample)
+      .sort(byCodePoint),
+    mixed_markers: [
+      ...new Set(
+        [...complete.values()].flatMap((m) => [...m.values()].map(([, , , , marker]) => marker)),
+      ),
+    ]
+      .filter((marker): marker is string => Boolean(marker))
+      .sort(byCodePoint),
+  };
+  if (ambiguity.mixed_markers.length < 2) {
+    ambiguity.mixed_markers = [];
+  }
+  const inferred = shape === "auto";
   const half: Entry[] = [];
   for (const [sample, mates] of pairs) {
     if (!complete.has(sample)) {
@@ -248,10 +290,11 @@ export function groupDatasets({
     }
   }
   const explicitSeen = [...complete.values()].some((m) => [...m.values()].some(([, , e]) => e));
+  const readsPaired = [...complete.values()].some((m) => [...m.values()].every(([, , , r]) => r));
   // Two independent guards: more than half the files sit in complete pairs, and the marker means
   // what we think.
   const majority = complete.size * 2 > inScope.length / 2;
-  const evidenced = explicitSeen || complete.size >= 2;
+  const evidenced = explicitSeen || readsPaired || complete.size >= 2;
 
   if (shape === "paired" || (shape === "auto" && complete.size && majority && evidenced)) {
     const elements = [...complete.keys()].sort(byCodePoint).map((sample) => ({
@@ -264,14 +307,19 @@ export function groupDatasets({
         id: complete.get(sample)!.get(mate)![1].id,
       })),
     }));
+    const named = [...complete.keys()].sort(byCodePoint).map((sample) => ({
+      sample,
+      forward: complete.get(sample)!.get("forward")![0],
+      reverse: complete.get(sample)!.get("reverse")![0],
+    }));
     const leftovers = [...unpaired, ...half].sort((a, b) => byCodePoint(a[0], b[0]));
-    return result("list:paired", elements, leftovers, outOfScope);
+    return result("list:paired", inferred, elements, named, ambiguity, leftovers, outOfScope);
   }
 
   const flat = inScope
     .map((r): Entry => [r.file, r.dataset])
     .sort((a, b) => byCodePoint(a[0], b[0]));
-  return result("list", flatElements(flat), [], outOfScope, flat);
+  return result("list", inferred, flatElements(flat), [], ambiguity, [], outOfScope);
 }
 
 function flatElements(entries: Entry[]): Element[] {
@@ -295,17 +343,20 @@ function placed(elements: Element[]): Entry[] {
 
 function result(
   structure: Grouping["structure"],
+  inferred: boolean,
   elements: Element[],
+  pairs: Pair[],
+  ambiguity: Grouping["ambiguity"],
   leftovers: Entry[],
   outOfScope: Row[],
-  inScope?: Entry[],
 ): Grouping {
-  // `items` is everything in scope, so a datatype write reaches the leftovers too.
-  const scoped = inScope ?? [...placed(elements), ...leftovers];
   return {
     structure,
+    inferred,
     elements,
-    items: items(scoped),
+    pairs,
+    ambiguity,
+    items: items(placed(elements)),
     leftovers: flatElements(leftovers),
     unmatched: leftovers.map(([name]) => name),
     out_of_scope: outOfScope.map((r) => r.file),

@@ -1,4 +1,9 @@
-import { createGalaxyContext, type GalaxyContext } from "@galaxyproject/galaxy-ops/browser";
+import {
+  allOperations,
+  createGalaxyContext,
+  type AnyOperation,
+  type GalaxyContext,
+} from "@galaxyproject/galaxy-ops/browser";
 
 import type { ArtifactKind } from "../artifacts/kinds";
 import { DEFAULT_BRAND, noteTag, type Brand } from "./brand";
@@ -9,7 +14,7 @@ import { annotating, galaxyTools, OPS_POLICY } from "./galaxy-tools";
 import { gtnTools } from "./gtn";
 import { notebookTools } from "./notebook";
 import { opsTools, type Annotate } from "./ops";
-import { processTools } from "./processes";
+import { organizeDatasetsOp } from "./operations/organize-datasets";
 import { pythonTool } from "./python";
 import { flavoredSkills, skillsTool } from "./skills";
 import { fail, type Context, type AgentTool } from "./tool";
@@ -57,22 +62,22 @@ function placingArtifacts(tool: AgentTool): AgentTool {
   };
 }
 
+/** Galaxy operations written to galaxy-ops' conventions that galaxy-ops does not ship yet. */
+const LOCAL_OPERATIONS: AnyOperation[] = [organizeDatasetsOp as AnyOperation];
+
 /** Every tool the agent can offer, before a session filters them by capability. */
 export function agentTools(skills = flavoredSkills(), flavor: AgentFlavor = {}): AgentTool[] {
   const brand = flavor.brand ?? DEFAULT_BRAND;
   const python = pythonTool();
   const flavored = flavor.tools?.() ?? [];
-  const rest = [
-    ...notebookTools(),
-    ...gtnTools(),
-    ...enaTools(),
-    skillsTool(skills),
-    ...processTools(),
-  ];
-  const own = new Set([python, ...flavored, ...rest].map((t) => t.name));
+  const rest = [...notebookTools(), ...gtnTools(), ...enaTools(), skillsTool(skills)];
+  const own = new Set([...[python, ...flavored, ...rest], ...LOCAL_OPERATIONS].map((t) => t.name));
   const tag = noteTag(brand);
   const galaxy = [
-    ...opsTools(annotating(flavor.annotators, tag), OPS_POLICY),
+    ...opsTools(annotating(flavor.annotators, tag), OPS_POLICY, [
+      ...allOperations,
+      ...LOCAL_OPERATIONS,
+    ]),
     ...galaxyTools(tag),
   ].map((t) => misrouted(t, own));
   return [python, ...[...galaxy, ...flavored].map(placingArtifacts), ...rest];

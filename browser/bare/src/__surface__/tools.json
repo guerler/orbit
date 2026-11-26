@@ -45,6 +45,7 @@
   "list_page_revisions",
   "get_page_revision",
   "revert_page_revision",
+  "organize_datasets",
   "download_dataset",
   "upload_file",
   "recommend_biocontainer",
@@ -52,6 +53,5 @@
   "gtn_search",
   "gtn_fetch",
   "ena_runs",
-  "skills_fetch",
-  "organize_datasets"
+  "skills_fetch"
 ]

@@ -29,7 +29,6 @@ export const GUARD_COUNTS_AS_FAILURE = {
   "destructive-declined": false,
   "galaxy-poll": false,
   "malformed-object-id": true,
-  "process-refusal": true,
   "repeated-failure": false,
   "settled-question": false,
   "sra-fan-out": false,

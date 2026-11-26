@@ -47,8 +47,9 @@ export interface OpPolicy {
 export function opsTools(
   annotate?: Annotate,
   policies: Record<string, OpPolicy> = {},
+  operations: AnyOperation[] = allOperations,
 ): AgentTool[] {
-  return allOperations.map((op) => opsTool(op, annotate, policies[op.name] ?? {}));
+  return operations.map((op) => opsTool(op, annotate, policies[op.name] ?? {}));
 }
 
 /** The model's snake_case arguments under the names galaxy-ops' input takes. */

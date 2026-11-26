@@ -255,10 +255,10 @@ describe("a turn", () => {
     expect(names).not.toContain("run_python");
   });
 
-  it("withholds a process unless the grant covers every capability it declares", async () => {
-    const { requests } = await turn([{ text: "ok" }], { capabilities: ["llm", "write"] });
+  it("withholds organize_datasets, a write operation, from a read-only grant", async () => {
+    const { requests } = await turn([{ text: "ok" }], { capabilities: ["llm", "read"] });
     const names = requests[0].tools.map((t: { function: { name: string } }) => t.function.name);
-    expect(names).toContain("create_history");
+    expect(names).toContain("get_histories");
     expect(names).not.toContain("organize_datasets");
   });
 

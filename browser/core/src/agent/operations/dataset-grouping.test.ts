@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 
 import { groupDatasets } from "./dataset-grouping";
 
@@ -130,18 +133,46 @@ describe("scope", () => {
     expect(out.items).toHaveLength(2);
   });
 
-  it("covers leftovers in items so a datatype write reaches them", () => {
-    expect(
-      groupDatasets({ datasets: names(["s1_R1.fq.gz", "s1_R2.fq.gz", "s2_R1.fq.gz"]) }).items,
-    ).toHaveLength(3);
+  it("keeps leftovers out of items so a datatype write reaches only the collection", () => {
+    const out = groupDatasets({ datasets: names(["s1_R1.fq.gz", "s1_R2.fq.gz", "s2_R1.fq.gz"]) });
+    expect(out.items.map((i) => i.id)).toEqual(["id_0", "id_1"]);
   });
 });
 
 describe("evidence for pairing", () => {
-  it("does not marry two unrelated samples into a pair", () => {
-    const out = groupDatasets({ datasets: names(["patient_1.fastq.gz", "patient_2.fastq.gz"]) });
+  it("does not marry two unrelated assemblies into a pair", () => {
+    const out = groupDatasets({ datasets: names(["assembly_1.fasta", "assembly_2.fasta"]) });
     expect(out.structure).toBe("list");
-    expect(elementNames(out)).toEqual(["patient_1.fastq.gz", "patient_2.fastq.gz"]);
+    expect(elementNames(out)).toEqual(["assembly_1.fasta", "assembly_2.fasta"]);
+  });
+
+  it("does not marry assemblies by datatype when the names look like reads", () => {
+    const out = groupDatasets({
+      datasets: ["assembly_1.fastq", "assembly_2.fastq"].map((name, i) => ({
+        id: `id_${i}`,
+        name,
+        extension: "fasta",
+      })),
+    });
+    expect(out.structure).toBe("list");
+  });
+
+  it("pairs a single sample of reads on a bare marker", () => {
+    const out = groupDatasets({ datasets: names(["patient_1.fastq.gz", "patient_2.fastq.gz"]) });
+    expect(out.structure).toBe("list:paired");
+    expect(elementNames(out)).toEqual(["patient"]);
+  });
+
+  it("pairs reads by datatype when the names carry no read extension", () => {
+    const out = groupDatasets({
+      datasets: ["patient_1", "patient_2"].map((name, i) => ({
+        id: `id_${i}`,
+        name,
+        extension: "fastqsanger.gz",
+      })),
+    });
+    expect(out.structure).toBe("list:paired");
+    expect(elementNames(out)).toEqual(["patient"]);
   });
 
   it("pairs a single sample on an explicit marker", () => {
@@ -151,7 +182,9 @@ describe("evidence for pairing", () => {
   });
 
   it("pairs a bare marker once a second sample shows the convention", () => {
-    const out = groupDatasets({ datasets: names(["a_1.fq", "a_2.fq", "b_1.fq", "b_2.fq"]) });
+    const out = groupDatasets({
+      datasets: names(["a_1.fasta", "a_2.fasta", "b_1.fasta", "b_2.fasta"]),
+    });
     expect(out.structure).toBe("list:paired");
     expect(elementNames(out)).toEqual(["a", "b"]);
   });
@@ -233,6 +266,25 @@ describe("the caller-supplied pattern", () => {
     expect(elementNames(out)).toEqual(["donorA", "donorB"]);
   });
 
+  it("names samples with a pattern that has no mate group and still pairs the mates", () => {
+    const out = groupDatasets({
+      datasets: names([
+        "SRR000001_1.fastq.gz",
+        "SRR000001_2.fastq.gz",
+        "SRR000002_1.fastq.gz",
+        "SRR000002_2.fastq.gz",
+      ]),
+      sampleRegex: "(?<sample>SRR\\d+)_\\d\\.fastq\\.gz$",
+    });
+    expect(out.structure).toBe("list:paired");
+    expect(elementNames(out)).toEqual(["SRR000001", "SRR000002"]);
+    expect(out.pairs[0]).toEqual({
+      sample: "SRR000001",
+      forward: "SRR000001_1.fastq.gz",
+      reverse: "SRR000001_2.fastq.gz",
+    });
+  });
+
   it("forces nothing when the pattern's mates are not mates", () => {
     const out = groupDatasets({
       datasets: names(["only_a.fq", "only_b.fq"]),
@@ -273,5 +325,72 @@ describe("structure names", () => {
     expect(() => groupDatasets({ datasets: [], structure: "nonsense" })).toThrow(
       'structure must be "auto", "paired" or "list", not "nonsense"',
     );
+  });
+});
+
+describe("Galaxy's auto_pairing_spec.yml", () => {
+  const spec = parse(readFileSync(join(__dirname, "auto_pairing_spec.yml"), "utf8")) as {
+    doc: string;
+    inputs: string[];
+    paired: Record<string, { forward: string; reverse: string }>;
+  }[];
+
+  for (const { doc, inputs, paired } of spec) {
+    it(doc, () => {
+      const out = groupDatasets({ datasets: inputs.map((name) => ({ id: name, name })) });
+      expect(out.structure).toBe("list:paired");
+      expect(out.unmatched).toEqual([]);
+      const pairs = Object.fromEntries(
+        out.elements.map((e) => [
+          e.name,
+          Object.fromEntries(e.element_identifiers!.map((m) => [m.name, m.id])),
+        ]),
+      );
+      expect(pairs).toEqual(paired);
+    });
+  }
+});
+
+describe("what a preview shows", () => {
+  it("names each pair by its files", () => {
+    const out = groupDatasets({ datasets: names(ILLUMINA) });
+    expect(out.pairs).toEqual([
+      {
+        sample: "sample1_001",
+        forward: "sample1_R1_001.fastq.gz",
+        reverse: "sample1_R2_001.fastq.gz",
+      },
+      {
+        sample: "sample2_001",
+        forward: "sample2_R1_001.fastq.gz",
+        reverse: "sample2_R2_001.fastq.gz",
+      },
+    ]);
+  });
+
+  it("says whether the structure was inferred or given", () => {
+    expect(groupDatasets({ datasets: names(SRA) }).inferred).toBe(true);
+    expect(groupDatasets({ datasets: names(SRA), structure: "paired" }).inferred).toBe(false);
+  });
+
+  it("keeps lanes and chunks apart rather than merging them", () => {
+    const lanes = [1, 2].flatMap((l) => [1, 2].map((m) => `S1_L00${l}_R${m}_001.fastq.gz`));
+    const out = groupDatasets({ datasets: names(lanes) });
+    expect(elementNames(out)).toEqual(["S1_L001_001", "S1_L002_001"]);
+    expect(out.ambiguity).toEqual({ duplicate_mates: [], mixed_markers: [] });
+  });
+
+  it("flags a sample with two files for one mate and pairs neither", () => {
+    const out = groupDatasets({
+      datasets: names([...SRA, "SRR1003_1.fq.gz"]),
+    });
+    expect(out.ambiguity.duplicate_mates).toEqual(["SRR1003"]);
+    expect(elementNames(out)).toEqual(["SRR1001", "SRR1002"]);
+    expect(out.unmatched).toEqual(["SRR1003_1.fastq.gz", "SRR1003_1.fq.gz", "SRR1003_2.fastq.gz"]);
+  });
+
+  it("flags pairs marked by different conventions", () => {
+    const out = groupDatasets({ datasets: names([...SRA, ...ILLUMINA]) });
+    expect(out.ambiguity.mixed_markers).toEqual(["1/2", "R1/R2"]);
   });
 });

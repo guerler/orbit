@@ -1653,6 +1653,58 @@
     {
       "type": "function",
       "function": {
+        "name": "organize_datasets",
+        "description": "Group loose datasets in a history into a new list or list:paired collection, set the datatype of its elements, and tag it. With preview, report the structure and pairs it would build without writing anything. Use when the user asks to organise, group, or collect loose datasets in a history, such as uploaded files or the contents of an unzipped archive, into a collection; not for filtering, relabelling or restructuring an existing collection, which Galaxy's collection tools do.",
+        "parameters": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "history_id": {
+              "type": "string"
+            },
+            "collection_name": {
+              "default": "Collection",
+              "type": "string"
+            },
+            "include": {
+              "default": "*",
+              "type": "string"
+            },
+            "structure": {
+              "default": "auto",
+              "description": "\"auto\" pairs on evidence, \"paired\" (or Galaxy's own \"list:paired\") forces pairing, \"list\" forces a flat list.",
+              "type": "string"
+            },
+            "datatype": {
+              "description": "Galaxy's datatype for these files, e.g. 'fastqsanger.gz'. A compressed file keeps the compression in its datatype, so gzipped reads are 'fastqsanger.gz' and never 'fastqsanger'; setting the uncompressed name is refused.",
+              "type": "string"
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "preview": {
+              "default": false,
+              "description": "Report the structure, pairs, unpaired files and ambiguities it would build, and write nothing.",
+              "type": "boolean"
+            },
+            "sample_regex": {
+              "description": "Optional regex over each archive path naming a `sample` group and an optional `mate` group, e.g. '(?P<sample>[^/]+)/part(?P<mate>[12])'. Use it when the file names follow a convention this tool did not infer; read a few names first.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "history_id"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
         "name": "download_dataset",
         "description": "Save a Galaxy dataset to the local filesystem.\n\nReturns `path`, `bytes`, `binary`, and for text data `lines`, a `preview` of the first 50 lines and `truncated`. Fetched as raw bytes, so BAM/HDF5/gzip arrive intact. The file lives in the browser's in-memory filesystem, which persists for the session, so read it with run_python -- text with `pandas.read_csv(path, sep='\\t')`, binary with `open(path, 'rb')` or a suitable library. Do not paste the preview into code: it is a sample, and re-emitting file content as a string breaks on tabs and newlines.",
         "parameters": {
@@ -1994,50 +2046,6 @@
           },
           "required": [
             "path"
-          ]
-        }
-      }
-    },
-    {
-      "type": "function",
-      "function": {
-        "name": "organize_datasets",
-        "description": "Group loose datasets in a history into a collection, tag it, and set their datatype. Use when the user asks to organise, group, or collect loose datasets in a history, to build a collection from files that arrived separately, or to tag or set the datatype of a set of datasets.",
-        "parameters": {
-          "type": "object",
-          "properties": {
-            "history_id": {
-              "type": "string"
-            },
-            "collection_name": {
-              "type": "string",
-              "description": "Defaults to \"Collection\"."
-            },
-            "include": {
-              "type": "string",
-              "description": "Defaults to \"*\"."
-            },
-            "structure": {
-              "type": "string",
-              "description": "\"auto\" pairs on evidence, \"paired\" (or Galaxy's own \"list:paired\") forces pairing, \"list\" forces a flat list. Defaults to \"auto\"."
-            },
-            "datatype": {
-              "type": "string",
-              "description": "Galaxy's datatype for these files, e.g. 'fastqsanger.gz'. A compressed file keeps the compression in its datatype, so gzipped reads are 'fastqsanger.gz' and never 'fastqsanger'; setting the uncompressed name is refused."
-            },
-            "tags": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "sample_regex": {
-              "type": "string",
-              "description": "Optional regex over each archive path naming a `sample` group and an optional `mate` group, e.g. '(?P<sample>[^/]+)/part(?P<mate>[12])'. Use it when the file names follow a convention this tool did not infer; read a few names first."
-            }
-          },
-          "required": [
-            "history_id"
           ]
         }
       }
