@@ -216,6 +216,37 @@ describe("saved sessions in this browser", () => {
   });
 });
 
+describe("history items dropped on the input", () => {
+  it("go into the question with their ids, and other drops are left to the browser", async () => {
+    await mountOrbitBrowser(container, {
+      ...base,
+      createWorker: () => fakeWorker() as unknown as Worker,
+      launch: async () => ({ historyId: "h1" }),
+    });
+    const input = container.querySelector<HTMLTextAreaElement>("#input")!;
+    const drop = (text: string) => {
+      const event = new Event("drop", { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "dataTransfer", { value: { getData: () => text } });
+      input.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    input.value = "Count the reads in";
+    input.setSelectionRange(input.value.length, input.value.length);
+    const item = {
+      id: "f2db41e1fa331b3e",
+      hid: 12,
+      name: "reads.fastq",
+      history_content_type: "dataset",
+    };
+    expect(drop(JSON.stringify([item]))).toBe(true);
+    expect(input.value).toBe('Count the reads in [dataset #12 "reads.fastq", id f2db41e1fa331b3e]');
+    expect(drop("plain text")).toBe(false);
+    const subcollection = { id: "e1", object: { id: "c1", model_class: "DatasetCollection" } };
+    expect(drop(JSON.stringify([subcollection]))).toBe(true);
+    expect(input.value).toBe('Count the reads in [dataset #12 "reads.fastq", id f2db41e1fa331b3e]');
+  });
+});
+
 describe("dispose", () => {
   // Orbit's ChatPanel adds document listeners of its own that only the renderer could detach.
   it("stops the worker and removes the pane and chat listeners", async () => {

@@ -29,6 +29,7 @@ import { ChatView, type RunOutcome } from "./session/transcript";
 
 import { createConfirm } from "./confirm-modal";
 import { conversationMarkdown, markdownName } from "./session/markdown";
+import { droppedItems, itemReference, withReferences } from "./history-drop";
 import { DEFAULT_BRAND, type Brand } from "./agent/brand";
 import { AgentClient } from "./agent/client";
 import { briefly, connectGalaxy, type Galaxy } from "./agent/galaxy";
@@ -281,6 +282,26 @@ export async function mountOrbitBrowser(
   });
 
   el.input.addEventListener("input", () => autosize(el.input));
+  // Datasets and collections dragged from Galaxy's history go into the question with their ids,
+  // highlighted as Orbit highlights files dragged onto its input.
+  el.input.addEventListener("dragover", (e) => {
+    if (e.dataTransfer?.types.includes("text/plain")) el.input.classList.add("file-drop-target");
+  });
+  el.input.addEventListener("dragleave", () => el.input.classList.remove("file-drop-target"));
+  el.input.addEventListener("drop", (e) => {
+    el.input.classList.remove("file-drop-target");
+    const items = droppedItems(e.dataTransfer?.getData("text") ?? "");
+    // Galaxy's payload is never pasted as it is, even when nothing in it can be referred to.
+    if (items) e.preventDefault();
+    if (items?.length) {
+      const { selectionStart, selectionEnd, value } = el.input;
+      const next = withReferences(value, selectionStart, selectionEnd, items.map(itemReference));
+      el.input.value = next.value;
+      el.input.setSelectionRange(next.caret, next.caret);
+      el.input.focus();
+      autosize(el.input);
+    }
+  });
   // Asked on the first use; `confirm` is made below, before any click can reach the button.
   const dictation = mountDictation(el.mic, el.input, {
     consent: rememberedConsent(`${brand.id}.dictationConsent`, (request) => confirm.ask(request)),
