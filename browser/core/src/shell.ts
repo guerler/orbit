@@ -28,6 +28,7 @@ import { offeredProviders } from "./agent/providers";
 import { ChatView, type RunOutcome } from "./session/transcript";
 
 import { createConfirm } from "./confirm-modal";
+import { conversationMarkdown, markdownName } from "./session/markdown";
 import { DEFAULT_BRAND, type Brand } from "./agent/brand";
 import { AgentClient } from "./agent/client";
 import { briefly, connectGalaxy, type Galaxy } from "./agent/galaxy";
@@ -525,11 +526,13 @@ export async function mountOrbitBrowser(
   save?.addEventListener("click", async () => {
     save.disabled = true;
     save.textContent = "Saving...";
+    let exported: SessionDocument | undefined;
+    let id: string | undefined;
     try {
-      const document = await agent.export("");
-      const id = await sessions!.save(document, savedId);
+      exported = await agent.export("");
+      id = await sessions!.save(exported, savedId);
       showing(id);
-      await agent.saved(keptAs(id), document);
+      await agent.saved(keptAs(id), exported);
       save.textContent = "Saved";
       sessions!.savedState(true);
       info(sessions!.savedNote);
@@ -537,11 +540,32 @@ export async function mountOrbitBrowser(
       // The conversation itself is untouched; only the save failed.
       console.error(`[${brand.id}] could not save the session`, e);
       save.textContent = "Save";
-      chat.addErrorMessage(`Could not save this conversation: ${briefly(String(e))}`);
+      const reason = briefly(String(e));
+      chat.addErrorMessage(`Could not save this conversation: ${reason}`);
+      if (exported && id === undefined) offerDownload(exported, reason);
     } finally {
       refreshControls();
     }
   });
+
+  /** Offers a conversation that could not be saved as a Markdown file. */
+  async function offerDownload(exported: SessionDocument, reason: string) {
+    const wanted = await confirm.ask({
+      title: "Download conversation",
+      message: `Download its questions, answers and artifacts as a Markdown file? It could not be saved: ${reason}`,
+      accept: "Download",
+      deny: "Cancel",
+    });
+    if (wanted) {
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(
+        new Blob([conversationMarkdown(exported)], { type: "text/markdown" }),
+      );
+      link.download = markdownName(exported);
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+    }
+  }
 
   function submit() {
     const text = el.input.value.trim();

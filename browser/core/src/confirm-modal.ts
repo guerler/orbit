@@ -35,6 +35,8 @@ export function createConfirm(deps: ConfirmDeps) {
   ) {
     title.textContent = request?.title || "Confirm";
     message.textContent = request?.message || "";
+    accept.textContent = request?.accept || "Yes";
+    deny.textContent = request?.deny || "No";
     overlay.classList.remove("hidden");
 
     const close = () => {
@@ -86,7 +88,12 @@ export function createConfirm(deps: ConfirmDeps) {
   }
 
   /** The page's own question: no while anything else is on screen, or when taken down. */
-  function ask(request: { title: string; message: string }): Promise<boolean> {
+  function ask(request: {
+    title: string;
+    message: string;
+    accept?: string;
+    deny?: string;
+  }): Promise<boolean> {
     if (shown) return Promise.resolve(false);
     return new Promise((resolve) => open(PAGE, request, resolve, () => resolve(false)));
   }

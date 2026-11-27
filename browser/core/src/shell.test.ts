@@ -160,6 +160,59 @@ describe("saved sessions in this browser", () => {
       return found;
     });
     expect(saved.savedId).toBe("chat/c1");
+    worker.say({
+      type: "reply",
+      id: saved.id,
+      error: "storage is gone",
+    } as unknown as WorkerMessage);
+    await vi.waitFor(() => expect(container.textContent).toContain("storage is gone"));
+    expect(container.querySelector("#ext-overlay")!.classList.contains("hidden")).toBe(true);
+  });
+
+  it("offers the conversation as a download when it cannot be saved", async () => {
+    const worker = fakeWorker();
+    await mountOrbitBrowser(container, {
+      ...base,
+      createWorker: () => worker as unknown as Worker,
+      launch: async () => ({ historyId: "h1" }),
+      sessions: {
+        kind: "chat",
+        save: async () => {
+          throw new Error("HTTP 400: This conversation is too large to save");
+        },
+        savedState: () => {},
+        savedNote: "Saved.",
+      },
+    });
+    worker.say({ type: "ready", galaxy: { connected: true } } as unknown as WorkerMessage);
+    worker.say({
+      type: "events",
+      events: [
+        {
+          type: "snapshot",
+          entries: [{ kind: "pi.user", model: [{ role: "user", content: "hello" }] }],
+          usage: { models: {} },
+        },
+      ],
+    } as unknown as WorkerMessage);
+    const made = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:conversation");
+    const clicked = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    const accept = container.querySelector<HTMLButtonElement>("#ext-accept")!;
+    container.querySelector<HTMLButtonElement>("#save-btn")!.click();
+    const exported = await vi.waitFor(() => {
+      const found = worker.sent.find((m) => m.type === "export");
+      if (!found) throw new Error("not exported yet");
+      return found;
+    });
+    const session = { id: "0123abcd", title: "", createdAt: "2026-11-27T20:00:00Z" };
+    worker.say({ type: "reply", id: exported.id, value: { ...document, session } });
+    await vi.waitFor(() => expect(accept.textContent).toBe("Download"));
+    expect(container.querySelector("#ext-message")!.textContent).toContain("too large to save");
+    accept.click();
+    await vi.waitFor(() => expect(made).toHaveBeenCalledWith(expect.any(Blob)));
+    expect(clicked).toHaveBeenCalledTimes(1);
+    made.mockRestore();
+    clicked.mockRestore();
   });
 });
 
