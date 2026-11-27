@@ -135,7 +135,7 @@ export const chats: Store = {
   },
   connect(galaxy: Galaxy): Saves {
     async function create(payload: object): Promise<string> {
-      const created = await galaxy.post("api/chat/exchanges", payload);
+      const created = await galaxy.post("api/chat/exchange", payload);
       return created.id;
     }
     return {

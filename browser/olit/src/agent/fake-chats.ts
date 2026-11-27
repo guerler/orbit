@@ -18,7 +18,7 @@ export function chatStore() {
   async function answer(request: Request): Promise<Response | undefined> {
     const path = new URL(request.url).pathname;
     let response: Response | undefined;
-    if (path.endsWith("/api/chat/exchanges") && request.method === "POST") {
+    if (path.endsWith("/api/chat/exchange") && request.method === "POST") {
       const created = `c${next++}`;
       rows.set(created, JSON.parse(await request.text()));
       response = json({ id: created });

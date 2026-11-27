@@ -706,7 +706,7 @@ const server = http.createServer(async (req, res) => {
     // Chat API: only the signed-in user's chats; only chats with a document can be replaced.
     if (url.startsWith("/api/chat/exchange")) {
         const [, , , , id, part] = url.split("?")[0].split("/");
-        if (req.method === "POST" && url.startsWith("/api/chat/exchanges")) {
+        if (req.method === "POST" && url.split("?")[0] === "/api/chat/exchange") {
             const body = await readJson(req);
             const created = `c${chats.size + 1}`;
             chats.set(created, body);
