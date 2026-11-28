@@ -24,13 +24,23 @@ export class AgentClient {
         else waiting?.resolve(data.value);
         return;
       }
+      // A worker that lost the session ends itself, and answers nothing it was asked.
+      if (data.type === "lost") this.fail("Another tab has this session now.");
       listen(data);
     };
     // A worker that never loads, or dies outside a message, would otherwise leave Send inert.
     this.worker.onerror = (e) => {
       e.preventDefault();
-      listen({ type: "failed", message: e.message || "The assistant could not start." });
+      const message = e.message || "The assistant could not start.";
+      this.fail(message);
+      listen({ type: "failed", message });
     };
+  }
+
+  /** Fail whatever waits on a reply the worker will not send. */
+  private fail(reason: string) {
+    for (const waiting of this.replies.values()) waiting.reject(new Error(reason));
+    this.replies.clear();
   }
 
   private send(message: PageMessage) {
@@ -88,7 +98,6 @@ export class AgentClient {
     if (this.closed) return;
     this.closed = true;
     this.worker.terminate();
-    for (const waiting of this.replies.values()) waiting.reject(new Error("The agent is closed."));
-    this.replies.clear();
+    this.fail("The agent is closed.");
   }
 }

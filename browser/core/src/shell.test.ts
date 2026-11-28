@@ -325,6 +325,25 @@ describe("a save that Galaxy answers late", () => {
     expect(container.textContent).not.toContain("Could not save");
   });
 
+  it("ends when the worker dies before it answers", async () => {
+    const worker = fakeWorker();
+    await mountOrbitBrowser(container, {
+      ...base,
+      createWorker: () => worker as unknown as Worker,
+      launch: async () => ({ historyId: "h1" }),
+      sessions: { kind: "chat", save: async () => "c1", savedState: () => {}, savedNote: "Saved." },
+    });
+    worker.say({ type: "ready", galaxy: { connected: true } } as unknown as WorkerMessage);
+    worker.say(snapshot("first question"));
+    container.querySelector<HTMLButtonElement>("#save-btn")!.click();
+    await sent(worker, "export");
+    worker.onerror?.({ message: "worker died", preventDefault: () => {} } as ErrorEvent);
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("Could not save this conversation"),
+    );
+    expect(container.querySelector("#save-btn")!.textContent).toBe("Save");
+  });
+
   it("is where a conversation this browser kept was saved", async () => {
     const { calls } = await slowSave({ ready: { savedAs: "chat/c7" } });
     expect(calls.active).toContain("c7");
