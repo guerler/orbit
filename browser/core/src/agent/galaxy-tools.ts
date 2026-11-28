@@ -175,7 +175,9 @@ export const OPS_POLICY: Record<string, OpPolicy> = {
         : undefined;
     },
   },
-  update_history: { destructiveWhen: (args) => args.deleted === true },
+  update_history: {
+    destructiveWhen: (args) => args.deleted === true || args.published === true,
+  },
   create_page: {
     check: async (args) => invalidPage(args.content),
     around: (call, _args, ctx) => call().then((envelope) => linkedPage(envelope, ctx)),

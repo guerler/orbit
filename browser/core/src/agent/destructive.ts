@@ -12,9 +12,9 @@ export type AskFor = (
 
 /**
  * What a call would destroy, in words for the person approving it, or undefined when it
- * destroys nothing. Whether it destroys is the tool's to say (galaxy-ops' `destructive` and
- * `destructiveWhen`); the words are the agent's, and a whole history gets its own, as loom gives
- * it.
+ * destroys nothing. Whether it destroys is the tool's to say (galaxy-ops' `destructive`, or the
+ * agent's own `destructiveWhen` for one op); the words are the agent's, and a whole history gets
+ * its own, as loom gives it.
  */
 export function classify(
   name: string,
@@ -23,6 +23,10 @@ export function classify(
 ): string | undefined {
   if (!destroys(name, args)) {
     return undefined;
+  }
+  if (name === "update_history" && args.deleted !== true) {
+    const suffix = typeof args.history_id === "string" ? ` (${args.history_id})` : "";
+    return `Publish the entire history${suffix}: anyone can then see it and every dataset in it.`;
   }
   if (name === "update_history") {
     const suffix = typeof args.history_id === "string" ? ` (${args.history_id})` : "";

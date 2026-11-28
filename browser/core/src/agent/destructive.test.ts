@@ -37,6 +37,15 @@ describe("classify", () => {
     );
   });
 
+  it("asks before a history is published, which makes all of it public", () => {
+    expect(classify("update_history", { history_id: "h1", published: true }, DESTROYS)).toBe(
+      "Publish the entire history (h1): anyone can then see it and every dataset in it.",
+    );
+    expect(classify("update_history", { history_id: "h1", published: false }, DESTROYS)).toBe(
+      undefined,
+    );
+  });
+
   it("classifies every operation galaxy-ops flags as destructive", () => {
     const headline = classify("delete_user_tool", { uuid: "u1" }, DESTROYS);
     expect(headline).toContain("delete_user_tool");

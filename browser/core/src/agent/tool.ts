@@ -98,7 +98,7 @@ export interface AgentTool {
   capability?: Capability;
   /** Deletes or cancels something that cannot be brought back: the user is asked first. */
   destructive?: boolean;
-  /** Destroys for these arguments only, as galaxy-ops' destructiveWhen says. */
+  /** Destroys for these arguments only; replaces `destructive` for the op it is set on. */
   destructiveWhen?: (args: Record<string, unknown>) => boolean;
   /** The argument naming something that moves on its own: reading it again soon says nothing new. */
   polls?: string;
