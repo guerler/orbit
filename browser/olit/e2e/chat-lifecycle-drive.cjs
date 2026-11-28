@@ -1,5 +1,6 @@
-// Tests Olit as Galaxy AI's chat on the stub's host page, which hosts it as Galaxy does: one frame
-// whose Charts messages are its reports, and commands into it in order once it has sent one.
+// Tests Olit as Galaxy AI's chat on the stub's host page, which hosts it as Galaxy does: one olit-plugin
+// element whose galaxy-visualization events are its reports, and commands into it in order once it
+// has sent one.
 // Covers: its reports, asking without a reload or a new worker, opening a chat without a reload,
 // commands in order, a question during an answer, refusing commands from another frame, and
 // artifacts in the chat's own pane. BROWSER=firefox or webkit runs it there; the mid-answer part is
@@ -31,7 +32,9 @@ async function machine(browser, url) {
     const page = await (await browser.newContext()).newPage();
     await storedProvider(page, { provider: "openrouter", baseUrl: `${STUB}/v1`, apiKey: "sk-or-v1-stubkeystubkey", model: "stub-model" });
     await page.goto(url, { waitUntil: "domcontentloaded" });
-    return { page, frame: page.frameLocator("#galaxy_visualization") };
+    // A plain frame is a visualization; Galaxy AI's chat is its olit-plugin element.
+    const frame = url.includes("frame=1") ? page.frameLocator("#galaxy_visualization") : page.locator("olit-plugin");
+    return { page, frame };
 }
 
 const ready = (frame) =>
@@ -55,11 +58,8 @@ const ready = (frame) =>
     // A chat saved without a session, to open after asking.
     const turns = [{ query: "Which aligner?", response: "HISAT2." }];
     await fetch(`${STUB}/__held?id=g1&turns=${encodeURIComponent(JSON.stringify(turns))}`);
-    const { page, frame } = await machine(browser, `${HOST}?frame=1&view=chat`);
-    const host = () => page.evaluate(() => {
-        const view = document.getElementById("galaxy_visualization").contentWindow;
-        return { ...window.__galaxyAi, page: view.__page };
-    });
+    const { page, frame } = await machine(browser, `${HOST}?element=1&view=chat`);
+    const host = () => page.evaluate(() => ({ ...window.__galaxyAi, page: window.__page }));
     const reports = async (type) => (await host()).reports.filter((r) => r.type === type);
     const last = async (type) => (await reports(type)).at(-1);
     const command = (given) => page.evaluate((c) => window.__command(c), given);
@@ -133,17 +133,17 @@ const ready = (frame) =>
         await fetch(`${STUB}/__script?name=plain`);
     }
 
-    // Commands only come from Galaxy's page: another frame is ignored.
+    // Commands only come from Galaxy's element events: a message from another frame is ignored.
     const asked = (await host()).reports.length;
     await page.evaluate(() => window.__foreign({ type: "ask", question: "from another frame" }));
     await new Promise((r) => setTimeout(r, 3000));
     check("a command from another frame is ignored",
         !/from another frame/.test(await text()) && (await host()).reports.length === asked, (await text()).slice(-200));
-    check("only one frame was ever mounted", (await host()).mounts.length === 1 && (await host()).page === "first",
+    check("only one element was ever mounted", (await host()).mounts.length === 1 && (await host()).page === "first",
         JSON.stringify(await host()));
 
-    // Artifacts show in the chat's own pane, inside its frame.
-    const shows = await machine(browser, `${HOST}?dataset_id=d1&frame=1&view=chat`);
+    // Artifacts show in the chat's own pane.
+    const shows = await machine(browser, `${HOST}?dataset_id=d1&element=1&view=chat`);
     check("a chat on a dataset boots", await ready(shows.frame));
     await fetch(`${STUB}/__script?name=visualization`);
     await shows.frame.locator("#input").fill("open the structure in a viewer");

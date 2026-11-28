@@ -5,7 +5,7 @@ const storedProvider = require("./stored-provider.cjs");
 const BROWSER = process.env.BROWSER || "chromium";
 const STUB = "http://127.0.0.1:8099";
 // Galaxy launches Olit on a dataset; the history is the one holding it.
-const HOST = `${STUB}/plugins/visualizations/olit?dataset_id=e2edataset0002&frame=1&view=chat`;
+const HOST = `${STUB}/plugins/visualizations/olit?dataset_id=e2edataset0002&element=1&view=chat`;
 
 let failed = 0;
 function check(name, ok, detail) {
@@ -21,7 +21,7 @@ function check(name, ok, detail) {
     // The default scenario answers with a destructive call and opens the gate; this one just replies.
     await fetch(`${STUB}/__script?name=compact`);
     await page.goto(HOST, { waitUntil: "domcontentloaded" });
-    const frame = page.frameLocator("#galaxy_visualization");
+    const frame = page.locator("olit-plugin");
     const idle = () =>
         frame
             .locator("#send-btn:not(.hidden)")
@@ -29,7 +29,7 @@ function check(name, ok, detail) {
             .then(() => true, () => false);
 
     check(
-        "booted inside the frame",
+        "booted in Galaxy AI's element",
         await frame.locator("text=/Ready\./").first().waitFor({ timeout: 120000 }).then(() => true, () => false),
     );
     check("Save is disabled in an empty conversation", await frame.locator("#save-btn").isDisabled());

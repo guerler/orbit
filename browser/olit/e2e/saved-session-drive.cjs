@@ -1,6 +1,6 @@
-// Tests reopening a saved chat on another machine. Saving it again must replace that chat.
-// Also covers chats saved without a session, `question`, switching chats without a page reload, and the
-// reported chat id.
+// Tests Olit as Galaxy AI's olit-plugin element: reopening a saved chat after a reload and on another
+// machine, where saving again must replace that chat. Also covers chats saved without a session,
+// `question`, switching chats without a page reload, and the reported chat id.
 const playwright = require("playwright");
 const storedProvider = require("./stored-provider.cjs");
 const BROWSER = process.env.BROWSER || "chromium";
@@ -18,7 +18,8 @@ async function machine(browser, url, booting = true) {
     const page = await (await browser.newContext()).newPage();
     await storedProvider(page, { provider: "openrouter", baseUrl: `${STUB}/v1`, apiKey: "sk-or-v1-stubkeystubkey", model: "stub-model" });
     await page.goto(url, { waitUntil: "domcontentloaded" });
-    const frame = page.frameLocator("#galaxy_visualization");
+    // The olit-plugin element, as Galaxy AI mounts it; locators reach into its shadow root.
+    const frame = page.locator("olit-plugin");
     if (!booting) return { page, frame, ready: false };
     const ready = await frame
         .locator("text=/Ready\\./")
@@ -57,7 +58,7 @@ async function save(frame) {
     await fetch(`${STUB}/__script?name=plain`);
     const browser = await playwright[BROWSER].launch();
 
-    const first = await machine(browser, `${HOST}?dataset_id=dsaved&frame=1&view=chat`);
+    const first = await machine(browser, `${HOST}?dataset_id=dsaved&element=1&view=chat`);
     check("the first machine boots", first.ready);
     await say(first.frame, "remember the saved session marker");
     const known = new Set(Object.keys((await stored()).chats));
@@ -76,9 +77,24 @@ async function save(frame) {
 
     check("saving reports the new chat id", (await shown(first.page)) === id, JSON.stringify((await hosted(first.page)).reports));
 
-    const second = await machine(browser, `${HOST}?exchange_id=${id}&frame=1&view=chat`);
+    // A reload restores the conversation this browser kept, still as that chat.
+    await first.page.reload({ waitUntil: "domcontentloaded" });
+    const reloaded = await first.page
+        .locator("olit-plugin")
+        .locator("text=/Ready\\./")
+        .first()
+        .waitFor({ timeout: 120000 })
+        .then(() => true, () => false);
+    check("a reload restores the saved chat as that chat", reloaded && (await shown(first.page)) === id,
+        JSON.stringify((await hosted(first.page)).reports));
+    await say(first.frame, "a turn after the reload");
+    const resaved = await save(first.frame);
+    check("saving after the reload replaces that chat", resaved.writes.at(-1) === `PUT ${id}`,
+        JSON.stringify(resaved.writes.slice(-2)));
+
+    const second = await machine(browser, `${HOST}?exchange_id=${id}&element=1&view=chat`);
     check("the second machine boots on the saved chat", second.ready);
-    const text = await second.frame.locator("body").innerText();
+    const text = await second.frame.locator("#messages").innerText();
     check(
         "the conversation comes back as saved",
         text.includes("remember the saved session marker"),
@@ -99,8 +115,8 @@ async function save(frame) {
     // A chat saved without a session: turns only.
     const turns = [{ query: "Which aligner for RNA-seq?", response: "HISAT2 or STAR." }];
     await fetch(`${STUB}/__held?id=g1&turns=${encodeURIComponent(JSON.stringify(turns))}`);
-    const held = await machine(browser, `${HOST}?exchange_id=g1&frame=1&view=chat`);
-    const heldText = await held.frame.locator("body").innerText();
+    const held = await machine(browser, `${HOST}?exchange_id=g1&element=1&view=chat`);
+    const heldText = await held.frame.locator("#messages").innerText();
     check(
         "a chat without a session opens from its questions and answers",
         held.ready && heldText.includes("Which aligner for RNA-seq?") && heldText.includes("HISAT2 or STAR."),
@@ -134,8 +150,8 @@ async function save(frame) {
     );
 
     // A chat this user cannot open: another user's, or deleted.
-    const missing = await machine(browser, `${HOST}?exchange_id=gone&frame=1&view=chat`);
-    const missingText = await missing.frame.locator("body").innerText();
+    const missing = await machine(browser, `${HOST}?exchange_id=gone&element=1&view=chat`);
+    const missingText = await missing.frame.locator("#messages").innerText();
     check(
         "an inaccessible chat shows an error and starts a new conversation",
         missing.ready && /Could not open saved conversation gone/.test(missingText),
@@ -144,13 +160,13 @@ async function save(frame) {
     check("it reports the chat view only", (await shown(missing.page)) === null, JSON.stringify((await hosted(missing.page)).reports));
 
     // A question from Galaxy, asked in a new conversation.
-    const asked = await machine(browser, `${HOST}?question=${encodeURIComponent("count my datasets please")}&frame=1&view=chat`);
+    const asked = await machine(browser, `${HOST}?question=${encodeURIComponent("count my datasets please")}&element=1&view=chat`);
     const answered = await asked.frame
         .locator("text=Noted.")
         .last()
         .waitFor({ timeout: 60000 })
         .then(() => true, () => false);
-    const askedText = await asked.frame.locator("body").innerText();
+    const askedText = await asked.frame.locator("#messages").innerText();
     check("the question is asked once ready", answered && askedText.includes("count my datasets please"));
 
     const failed = results.filter((r) => !r.ok);
