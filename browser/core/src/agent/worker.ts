@@ -49,6 +49,8 @@ export type WorkerMessage =
       recordsProblem?: string;
       /** The newest save holding the conversation shown, keyed as the page keys saves. */
       savedAs?: string;
+      /** Why the saved conversation asked for could not be opened, so a new one was. */
+      savedProblem?: string;
     }
   /** No session kept here, but the launch history has records of this brand to choose from. */
   | { type: "recoverable"; records: RecordSummary[] }
@@ -212,7 +214,19 @@ async function open(request: OpenRequest) {
     flavor,
   });
   if (request.saved) {
-    return begin(await runtime.open(request.saved.document, request.saved.id), unkept);
+    const { document, id } = request.saved;
+    let problem: string | undefined;
+    const opened = await runtime.open(document, id).catch((e) => {
+      problem = String((e as Error)?.message ?? e);
+      return undefined;
+    });
+    if (opened) return begin(opened, unkept);
+    // The save in Galaxy is left as it is; the history starts afresh here.
+    const placement = {
+      historyId: document.history_id ?? request.placement.historyId,
+      datasetId: request.placement.datasetId ?? document.dataset_id,
+    };
+    return begin(await runtime.create(placement), unkept, undefined, problem);
   }
   const kept = await runtime.kept(request.placement);
   if (kept) return begin(kept, unkept);
@@ -234,7 +248,12 @@ async function open(request: OpenRequest) {
 }
 
 /** Show `next`, and say the session is ready. */
-async function begin(next: Conversation, unkept?: string, recordsProblem?: string) {
+async function begin(
+  next: Conversation,
+  unkept?: string,
+  recordsProblem?: string,
+  savedProblem?: string,
+) {
   await attach(next);
   post({
     type: "ready",
@@ -242,6 +261,7 @@ async function begin(next: Conversation, unkept?: string, recordsProblem?: strin
     galaxy: runtime!.galaxyStatus,
     galaxyProblem: runtime!.galaxyProblem,
     recordsProblem,
+    savedProblem,
     savedAs: await runtime!.savedAs(next),
   });
 }

@@ -462,6 +462,8 @@ export async function mountOrbitBrowser(
       take?.remove();
       galaxyStatus = message.galaxy;
       const kind = `${sessions?.kind}/`;
+      // A save that could not be opened stays as it is: Save stores this conversation anew.
+      if (message.savedProblem) showing(undefined);
       if (sessions && savedId === undefined && message.savedAs?.startsWith(kind)) {
         showing(message.savedAs.slice(kind.length));
       }
@@ -470,8 +472,12 @@ export async function mountOrbitBrowser(
         unkept: message.unkept,
         galaxyProblem: message.galaxyProblem,
         recordsProblem: message.recordsProblem,
-        savedProblem: launch.savedProblem,
-        saved: !!launch.saved,
+        savedProblem:
+          launch.savedProblem ??
+          (message.savedProblem &&
+            `Could not open the saved conversation (${briefly(message.savedProblem)}). This is a ` +
+              "new conversation, and Save stores it as a new one; the saved one is unchanged."),
+        saved: !!launch.saved && !message.savedProblem,
         restored: view.turns > 0,
         continuing,
         greeting: launch.greeting,

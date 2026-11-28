@@ -325,6 +325,33 @@ describe("a save that Galaxy answers late", () => {
     expect(container.textContent).not.toContain("Could not save");
   });
 
+  it("saves as a new one when the saved conversation could not be opened", async () => {
+    const worker = fakeWorker();
+    const saves: (string | undefined)[] = [];
+    await mountOrbitBrowser(container, {
+      ...base,
+      createWorker: () => worker as unknown as Worker,
+      launch: async () => ({ saved: { id: "c1", document: exportedDocument as any } }),
+      sessions: {
+        kind: "chat",
+        save: async (_document, id) => (saves.push(id), "c2"),
+        savedState: () => {},
+        savedNote: "Saved.",
+      },
+    });
+    worker.say({
+      type: "ready",
+      galaxy: { connected: true },
+      savedProblem: "broken",
+    } as unknown as WorkerMessage);
+    expect(container.textContent).toContain("the saved one is unchanged");
+    worker.say(snapshot("first question"));
+    container.querySelector<HTMLButtonElement>("#save-btn")!.click();
+    const exported = await sent(worker, "export");
+    worker.say({ type: "reply", id: exported.id, value: exportedDocument });
+    await vi.waitFor(() => expect(saves).toEqual([undefined]));
+  });
+
   it("ends when the worker dies before it answers", async () => {
     const worker = fakeWorker();
     await mountOrbitBrowser(container, {
