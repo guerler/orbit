@@ -101,6 +101,24 @@ describe("a saved Olit chat", () => {
     expect((rows.get("o1")!.document as SessionDocument).olit_session).toBe(SCHEMA + 1);
   });
 
+  it("opens a malformed session from its questions and answers, and keeps it", async () => {
+    const { rows, saved } = fakeGalaxy();
+    for (const broken of [
+      { ...document(), entries: [{ kind: "pi.user", model: [null] }] },
+      { ...document(), session: { ...document().session, usage: undefined } },
+      { ...document(), history_id: 7 },
+    ]) {
+      rows.set("m1", {
+        agent_type: AGENT_TYPE,
+        messages: [{ query: "q", response: "r" }],
+        document: broken,
+      });
+      const opened = (await saved.load("m1"))!;
+      expect(opened.held).toEqual({ note: OTHER_VERSION_NOTE });
+      expect(await saved.save(opened.document, "m1")).not.toBe("m1");
+    }
+  });
+
   it("returns null for a document that is not a session", async () => {
     const { rows, saved } = fakeGalaxy();
     rows.set("x1", { agent_type: "other", messages: [], document: { settings: {} } });

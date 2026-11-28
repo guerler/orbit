@@ -23,7 +23,8 @@ describe("durable names", () => {
   });
 
   it("keeps the saved session's marker key, on read and on write", () => {
-    const session = { id: "s1", title: "t", createdAt: "x", updatedAt: "x", turn: 0 };
+    const usage = { input: 0, output: 0, cost: null };
+    const session = { id: "s1", title: "t", createdAt: "x", updatedAt: "x", turn: 0, usage };
     expect(isSessionDocument({ olit_session: SCHEMA, session, entries: [] })).toBe(true);
     expect(isSessionDocument({ orbit_session: SCHEMA, session, entries: [] })).toBe(false);
     const runtime = readFileSync(join(__dirname, "agent", "runtime.ts"), "utf8");

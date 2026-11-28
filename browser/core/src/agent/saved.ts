@@ -54,7 +54,7 @@ export interface SessionDocument {
     models: ModelUse[];
     usage: { input: number; output: number; cost: number | null };
   };
-  /** The conversation's active context, as pi-durable exports it. */
+  /** The conversation's whole history, as pi-durable exports it. */
   entries: ExportedEntry[];
 }
 
@@ -90,9 +90,16 @@ export function isSessionDocument(value: unknown): value is SessionDocument {
     return false;
   }
   const { session, entries } = value;
+  const optionalString = (v: unknown) => v === undefined || typeof v === "string";
   return (
+    optionalString(value.history_id) &&
+    optionalString(value.dataset_id) &&
     typeof session.id === "string" &&
+    typeof session.createdAt === "string" &&
     typeof session.updatedAt === "string" &&
+    isObject(session.usage) &&
+    typeof session.usage.input === "number" &&
+    typeof session.usage.output === "number" &&
     (session.recordPageId === undefined ||
       (typeof session.recordPageId === "string" && ENCODED_ID.test(session.recordPageId))) &&
     Array.isArray(entries) &&
@@ -100,7 +107,9 @@ export function isSessionDocument(value: unknown): value is SessionDocument {
       (e, i) =>
         isObject(e) &&
         typeof e.kind === "string" &&
-        (e.model === undefined || Array.isArray(e.model)) &&
+        (e.model === undefined ||
+          (Array.isArray(e.model) &&
+            e.model.every((m) => isObject(m) && typeof m.role === "string"))) &&
         // A head marker starts the context at itself or at an earlier entry of this document.
         (e.head === undefined || e.head === "self" || startsEarlier(e.head, i)),
     )
