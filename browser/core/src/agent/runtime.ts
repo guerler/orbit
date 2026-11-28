@@ -513,13 +513,9 @@ export class Runtime {
 }
 
 /**
- * Hold conversations nobody is looking at: each run ends and its follow-ups wait for the user's
- * next message, while its Galaxy work is still watched. Returns once the pauses are committed and
- * the aborts enqueued, without waiting for a running tool to end.
- *
- * Input pi-durable has queued is recorded in the conversation's own pending list in the commit that
- * pauses it, then withdrawn through `Harness.abortSubmission()`. A boundary may place it in
- * between; delivery then finds it placed and skips it, so it is delivered once either way.
+ * Hold conversations nobody is looking at: runs end and follow-ups wait for the user's next
+ * message, while Galaxy work is still watched. Queued input moves to the conversation's pending
+ * list and is delivered once. Returns without waiting for a running tool to end.
  */
 export async function hold(
   harness: Harness,

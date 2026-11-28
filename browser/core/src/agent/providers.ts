@@ -28,10 +28,7 @@ const SELF_HOSTED: ProviderCompat = {
   maxTokensField: "max_tokens",
 };
 
-/**
- * pi-ai's own definition of each provider it knows: its endpoint, wire API, key variable,
- * compat and catalog are pi's, loaded when a session or a page needs them.
- */
+/** pi-ai's own definition of each provider it knows: endpoint, wire API, key variable, compat. */
 const PI: Record<string, () => Promise<PiProvider<Api>>> = {
   google: () => import("@earendil-works/pi-ai/providers/google").then((m) => m.googleProvider()),
   deepseek: () =>

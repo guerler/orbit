@@ -302,13 +302,8 @@ export interface GalaxyFollowUp {
 }
 
 /**
- * What this event says, and nothing the system prompt already says.
- *
- * The standing prompt is re-injected into the system message on every turn, this one included,
- * so verification, authorization and record discipline are in context already and are not
- * repeated here. What is left is what the prompt cannot know: which submitted work settled and how, and what a paused or unreadable outcome
- * means. Several held batches are joined into one turn, so whatever this says is said once per
- * batch.
+ * The follow-up turn's prompt: which submitted work settled and how. The system prompt covers the
+ * rest; held batches join into one turn, so this says it once.
  */
 export function buildResumePrompt(
   runs: GalaxyFollowUp[],

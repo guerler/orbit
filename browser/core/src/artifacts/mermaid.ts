@@ -7,7 +7,7 @@ type Mermaid = typeof import("mermaid").default;
 let loading: Promise<Mermaid> | null = null;
 let seq = 0;
 
-/** Load mermaid on first use; ~2.5 MB, kept out of the entry chunk. */
+/** Load mermaid on first use. */
 function load(): Promise<Mermaid> {
   if (!loading) {
     loading = import("mermaid").then(({ default: mermaid }) => {

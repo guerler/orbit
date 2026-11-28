@@ -108,13 +108,8 @@ export function applyJobOutcome(content: string, outcome: JobOutcome): string {
 }
 
 /**
- * Note submitted work in the record, keyed by the id the session observed: a pending status under
- * the id where the agent already wrote it, else an entry of the session's own.
- *
- * loom has `galaxy_invocation_record({ invocationId, ... })`: the agent hands the poller the
- * id and the poller owns the entry from then on. Here the watcher holds the correct id -- it
- * took it from the tool result -- so the session writes the entry itself rather than trusting
- * the model to transcribe a hex string.
+ * Note submitted work in the record under the id the session took from the tool result: a pending
+ * status where the agent already wrote that id, else an entry of the session's own.
  */
 export function noteSubmitted(
   content: string,

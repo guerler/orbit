@@ -62,14 +62,9 @@ const MARKUP = `
 </div>`;
 
 /**
- * Resolve with usable credentials, showing the overlay only when what we have
- * cannot work. Rejecting up front beats starting an agent that dies on its first
- * request, and the overlay stays up on a bad entry rather than stranding the
- * user in front of an agent that never connected.
- *
- * `cancellable` is only safe when a working selection already exists to fall back
- * on: dismissing the first-run picker would leave the agent with no key at all.
- * Resolves null when dismissed.
+ * Resolve with usable credentials, showing the picker only when the current ones cannot work and
+ * keeping it up on a bad entry. `cancellable` needs a working selection to fall back on; dismissed,
+ * it resolves null.
  */
 function openPicker(
   container: HTMLElement,

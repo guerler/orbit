@@ -42,15 +42,9 @@ function shownPage<T>(envelope: T, args: Record<string, unknown>, ctx: Context):
 }
 
 /**
- * A section edit's arguments as a whole-page write of Orbit's cut against the page as it is now,
- * so the browser writes what Orbit writes and what its refusals and the evidence gate judged: the
- * fork cuts flat at every heading and reads fenced code as headings.
- *
- * The session writes its own lines into the record, so a hash read before one of them no longer
- * matches; when the agent's read is known and the sections it replaces are unchanged since, the
- * edit goes ahead against the current page. A stale hash otherwise goes to galaxy-ops as given,
- * and galaxy-ops refuses it. The write carries the current page's hash, so a write that lands
- * between this read and the fork's is refused rather than overwritten.
+ * Turns a section edit into a whole-page write, cut into sections as Orbit cuts pages. A stale
+ * hash is moved onto the current page when the sections it replaces are unchanged since the
+ * agent's read; otherwise galaxy-ops refuses it.
  */
 async function asPageWrite(
   args: Record<string, unknown>,

@@ -163,7 +163,7 @@ function autosize(input: HTMLTextAreaElement): void {
 /**
  * Mount the shell into `container`, one mount per page or shadow root. It puts the theme on the
  * root element and the pane's state and drag cursor on body, or on the shadow host, where it also
- * adds its styles. It sizes the pane from the window's width, injects fixed element ids, configures
+ * adds its styles. It sizes the pane from the container's width, injects fixed element ids, configures
  * the shared `marked`, and its worker holds a per-origin tab lock.
  */
 export async function mountOrbitBrowser(
