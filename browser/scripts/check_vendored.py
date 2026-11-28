@@ -16,8 +16,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 SKILLS = ROOT / "core" / "src" / "agent" / "skills" / "galaxy-skills"
 SKILLS_STAMP = SKILLS / "VENDORED.json"
 SKILLS_LOCK = ROOT / "core" / "skills.lock.json"
-# Orbit's vendor tree, which the install copies from when browser/ sits in the loom repo.
-ORBIT_MANIFEST = ROOT.parent / "extensions" / "loom" / "vendor" / "skills" / "_manifest.json"
+# Orbit's vendor tree, which the install copies from when browser/ sits in the orbit repo.
+ORBIT_MANIFEST = ROOT.parent / "extensions" / "orbit" / "vendor" / "skills" / "_manifest.json"
 
 
 def blob_id(path: pathlib.Path) -> str:

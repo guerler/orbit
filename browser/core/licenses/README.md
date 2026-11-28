@@ -8,6 +8,7 @@ that carries no licence file of its own. Refetch a file when its component's ver
 | `pyodide-LICENSE` | github.com/pyodide/pyodide `LICENSE` | 0.29.5 | Pyodide; also pyodide/hiwire (MPL-2.0, commit `6a1e672`) linked into it |
 | `cpython-license.rst` | github.com/python/cpython `Doc/license.rst` | v3.13.2 | CPython in Pyodide, with the software incorporated in it (expat, libmpdec, mimalloc, zlib, Mersenne Twister, SipHash, dtoa and others) |
 | `hacl-star-NOTICE` | github.com/python/cpython `Modules/_hacl/Hacl_Hash_SHA2.c` header | v3.13.2 | HACL* hash code in CPython |
+| `bzip2-LICENSE` | sourceware.org/git/bzip2.git `LICENSE` | 1.0.8 | bzip2 in Pyodide |
 | `libffi-LICENSE` | github.com/libffi/libffi `LICENSE` | `f08493d` (Pyodide's pin) | libffi in Pyodide |
 | `emscripten-LICENSE` | github.com/emscripten-core/emscripten `LICENSE` | 4.0.9 | Emscripten runtime in Pyodide and sqlite-wasm |
 | `musl-COPYRIGHT` | github.com/emscripten-core/emscripten `system/lib/libc/musl/COPYRIGHT` | 4.0.9 (same in 5.0.5) | musl libc in Pyodide and sqlite-wasm; also pandas' musl-derived code (its `LICENSES/MUSL_LICENSE` is the same text) |

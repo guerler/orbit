@@ -30,7 +30,8 @@ async function main() {
   const container = document.getElementById(containerId);
   // Mount only on an element that has data-incoming, as Galaxy provides for plugins.
   if (container && (isDev() || container.dataset.incoming !== undefined)) {
-    if (isDev()) {
+    // Spelled out so a build drops the seeding and the XML parser it loads.
+    if (import.meta.env.DEV && isDev()) {
       await seedDevIncoming(container);
     }
     const incoming = parseIncoming(container, hostSearch());

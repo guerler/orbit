@@ -74,7 +74,8 @@ async function llmTargets(): Promise<Record<string, { root: string; path: string
 /** The commit this bundle was built from; a deployed copy cannot be identified without it. */
 function buildCommit(): string {
   try {
-    return execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim();
+    const git = (...args: string[]) => execFileSync("git", args, { encoding: "utf8" }).trim();
+    return git("rev-parse", "--short", "HEAD") + (git("status", "--porcelain") ? "-dirty" : "");
   } catch {
     return "";
   }
@@ -120,13 +121,25 @@ export function defines(settings: Partial<Env> = {}): Record<string, string> {
 const PYODIDE = path.dirname(createRequire(import.meta.url).resolve("pyodide/package.json"));
 const WHEELS = fileURLToPath(new URL("./temp/pyodide", import.meta.url));
 
+/** Pyodide's runtime files: its package also has demo consoles, which load scripts from CDNs. */
+const PYODIDE_RUNTIME = [
+  "pyodide.mjs",
+  "pyodide.js",
+  "pyodide.asm.js",
+  "pyodide.asm.wasm",
+  "python_stdlib.zip",
+  "pyodide-lock.json",
+];
+
 /** Pyodide and the wheels the agent loads beside it, copied next to the bundle Galaxy serves. */
 const copyPyodide: Plugin = {
   name: "orbit-browser-pyodide-copy",
   writeBundle(options) {
     const dest = path.join(options.dir!, "pyodide");
     fs.mkdirSync(dest, { recursive: true });
-    fs.cpSync(PYODIDE, dest, { recursive: true });
+    for (const file of PYODIDE_RUNTIME) {
+      fs.copyFileSync(path.join(PYODIDE, file), path.join(dest, file));
+    }
     for (const wheel of fs.readdirSync(WHEELS).filter((f) => f.endsWith(".whl"))) {
       fs.copyFileSync(path.join(WHEELS, wheel), path.join(dest, wheel));
     }
@@ -147,10 +160,13 @@ function packageOf(file: string): { dir: string; pkg: Record<string, string> } |
   return found;
 }
 
+/** Every worker's packages: each worker writes the same notice, so each writes all of them. */
+const workerPackages = new Map<string, string>();
+
 const workerLicenses: Plugin = {
   name: "orbit-browser-worker-licenses",
   generateBundle(_options, bundle) {
-    const entries = new Map<string, string>();
+    const entries = workerPackages;
     for (const chunk of Object.values(bundle)) {
       for (const id of chunk.type === "chunk" ? chunk.moduleIds : []) {
         const found = id.startsWith("\0") ? undefined : packageOf(id);
@@ -179,6 +195,9 @@ const workerLicenses: Plugin = {
 const LICENSES = fileURLToPath(new URL("./licenses", import.meta.url));
 const FONTS = fileURLToPath(new URL("../../app/src/renderer/assets/fonts", import.meta.url));
 const ES_TOOLKIT = path.dirname(createRequire(import.meta.url).resolve("es-toolkit/package.json"));
+const SKILLS_LICENSE = fileURLToPath(
+  new URL("./src/agent/skills/galaxy-skills/LICENSE", import.meta.url),
+);
 
 const copyLicenses: Plugin = {
   name: "orbit-browser-licenses-copy",
@@ -189,6 +208,8 @@ const copyLicenses: Plugin = {
       fs.copyFileSync(path.join(FONTS, font, "OFL.txt"), path.join(dest, `${font}-OFL.txt`));
     }
     fs.copyFileSync(path.join(ES_TOOLKIT, "NOTICE"), path.join(dest, "es-toolkit-NOTICE"));
+    // The galaxy-skills corpus is inlined into the worker as text.
+    fs.copyFileSync(SKILLS_LICENSE, path.join(dest, "galaxy-skills-LICENSE"));
   },
 };
 
@@ -230,6 +251,10 @@ export function orbitBrowserVite({
   page?: string;
   worker?: string;
 }): UserConfig {
+  // Vite builds for development under NODE_ENV=development, from the shell or a .env file.
+  if (command === "build" && (process.env.NODE_ENV ?? "production") !== "production") {
+    throw new Error(`NODE_ENV is "${process.env.NODE_ENV}"; a build must be a production build.`);
+  }
   const { env, missing } = readEnv();
   // Only the dev server reads these; a build is compiled without them.
   const llm = command === "serve" ? llmProxy(env) : { root: "http://127.0.0.1:11434", path: "/v1" };
@@ -238,6 +263,7 @@ export function orbitBrowserVite({
   }
   return {
     base: "./",
+    envDir: command === "build" ? false : undefined,
     build: {
       // Beside where the dev server serves Pyodide from, whatever directory Vite runs in.
       outDir: path.resolve(flavorRoot, "static"),
