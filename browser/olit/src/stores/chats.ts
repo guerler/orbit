@@ -6,13 +6,16 @@
  */
 
 import {
+  answerOf,
   HttpError,
   isSessionDocument,
+  questionOf,
   SCHEMA,
   segment,
   type Galaxy,
   type SessionDocument,
 } from "@galaxyproject/orbit-browser";
+import { OLIT_BRAND } from "../brand";
 import type { Opened, Saves, Store } from "./store";
 
 /** Agent type recorded on each saved turn. */
@@ -34,31 +37,15 @@ export interface HeldMessage {
   timestamp?: string | null;
 }
 
-/** Returns a message's text: the typed string, or the text blocks of a reply. */
-function textOf(message: { content?: unknown }): string {
-  let text = "";
-  if (typeof message.content === "string") {
-    text = message.content;
-  } else if (Array.isArray(message.content)) {
-    text = message.content
-      .filter((block) => block?.type === "text" && typeof block.text === "string")
-      .map((block) => block.text)
-      .join("");
-  }
-  return text;
-}
-
 /** Returns each user question with the last answer that follows it. */
 export function turnsOf(entries: readonly Entry[]): Turn[] {
   const turns: Turn[] = [];
   for (const entry of entries) {
     for (const message of entry.model ?? []) {
-      const said = textOf(message as { content?: unknown });
-      if (entry.kind === "pi.user" && message.role === "user") {
-        turns.push({ query: said, response: "" });
-      } else if (message.role === "assistant" && said.trim() && turns.length) {
-        turns[turns.length - 1]!.response = said;
-      }
+      const question = questionOf(message, OLIT_BRAND);
+      const answer = answerOf(message);
+      if (question) turns.push({ query: question, response: "" });
+      if (answer && turns.length) turns[turns.length - 1]!.response = answer;
     }
   }
   return turns;

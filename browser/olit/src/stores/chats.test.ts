@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { chatStore } from "../agent/fake-chats";
-import { connectGalaxy } from "@galaxyproject/orbit-browser/testing";
+import { connectGalaxy, EMPTY_REPLY, followUpMark } from "@galaxyproject/orbit-browser/testing";
 import { SCHEMA, type SessionDocument } from "@galaxyproject/orbit-browser/agent";
+import { OLIT_BRAND } from "../brand";
 import { AGENT_TYPE, chats, HELD_NOTE, heldSession, OTHER_VERSION_NOTE, turnsOf } from "./chats";
 
 const document = (): SessionDocument => ({
@@ -143,6 +144,35 @@ describe("turnsOf", () => {
     expect(turnsOf(entries)).toEqual([
       { query: "plot it", response: "Done." },
       { query: "thanks", response: "" },
+    ]);
+  });
+
+  it("takes the answer given through finish, and leaves out the agent's own prompts", () => {
+    const entries = [
+      { kind: "pi.user", model: [{ role: "user", content: "How many reads?" }] },
+      {
+        kind: "pi.assistant",
+        model: [{ role: "assistant", content: [{ type: "text", text: "Let me check." }] }],
+      },
+      {
+        kind: "pi.tool-result",
+        model: [
+          {
+            role: "toolResult",
+            toolName: "finish",
+            isError: false,
+            content: [{ type: "text", text: "There are 42 reads." }],
+          },
+        ],
+      },
+      {
+        kind: "pi.user",
+        model: [{ role: "user", content: `${followUpMark(OLIT_BRAND)} {"jobs": []}` }],
+      },
+      { kind: "pi.user", model: [{ role: "user", content: EMPTY_REPLY }] },
+    ] as unknown as SessionDocument["entries"];
+    expect(turnsOf(entries)).toEqual([
+      { query: "How many reads?", response: "There are 42 reads." },
     ]);
   });
 });

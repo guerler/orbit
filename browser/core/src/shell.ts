@@ -610,7 +610,7 @@ export async function mountOrbitBrowser(
     if (wanted) {
       const link = document.createElement("a");
       link.href = URL.createObjectURL(
-        new Blob([conversationMarkdown(exported)], { type: "text/markdown" }),
+        new Blob([conversationMarkdown(exported, brand)], { type: "text/markdown" }),
       );
       link.download = markdownName(exported);
       link.click();

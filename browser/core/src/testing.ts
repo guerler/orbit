@@ -10,7 +10,8 @@ export { hanging, json, stream, text, toolCall } from "./agent/fake-model";
 export { connectGalaxy, connectWeb } from "./agent/galaxy";
 export { CORE_PACKAGE, flavorTrespasses, specifiers, trespass } from "./flavor-boundary";
 export { annotating } from "./agent/galaxy-tools";
-export { noteTag } from "./agent/brand";
+export { followUpMark, noteTag } from "./agent/brand";
+export { EMPTY_REPLY } from "./agent/markers";
 export { pageContentProblem } from "./agent/page-edit";
 export { PROVIDERS } from "./agent/providers";
 export {

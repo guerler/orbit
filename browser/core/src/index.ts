@@ -5,6 +5,7 @@
 export { DEFAULT_BRAND, type Brand } from "./agent/brand";
 export { HttpError, segment, type Galaxy } from "./agent/galaxy";
 export { isSessionDocument, SCHEMA, type SessionDocument } from "./agent/saved";
+export { answerOf, questionOf } from "./session/turns";
 export {
   cannotStart,
   currentHistoryLaunch,

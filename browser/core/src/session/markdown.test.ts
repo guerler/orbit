@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_BRAND, followUpMark } from "../agent/brand";
+import { EMPTY_REPLY } from "../agent/markers";
 import { SCHEMA, type SessionDocument } from "../agent/saved";
 import { conversationMarkdown, markdownName } from "./markdown";
 
@@ -16,6 +18,11 @@ const document = (title: string): SessionDocument =>
     },
     entries: [
       { kind: "pi.user", model: [{ role: "user", content: "Draw the flow", timestamp: 0 }] },
+      {
+        kind: "pi.user",
+        model: [{ role: "user", content: `${followUpMark(DEFAULT_BRAND)} {"jobs": []}` }],
+      },
+      { kind: "pi.user", model: [{ role: "user", content: EMPTY_REPLY }] },
       {
         kind: "pi.assistant",
         model: [{ role: "assistant", content: [{ type: "text", text: "Here it is." }] }],
@@ -48,8 +55,8 @@ const document = (title: string): SessionDocument =>
   }) as unknown as SessionDocument;
 
 describe("a conversation as Markdown", () => {
-  it("has each question, answer and artifact in order", () => {
-    expect(conversationMarkdown(document("Read counts"))).toBe(
+  it("has each question, answer and artifact in order, and none of the agent's own prompts", () => {
+    expect(conversationMarkdown(document("Read counts"), DEFAULT_BRAND)).toBe(
       [
         "# Read counts",
         "## Question\n\nDraw the flow",
