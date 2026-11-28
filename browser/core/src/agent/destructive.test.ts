@@ -46,6 +46,16 @@ describe("classify", () => {
     );
   });
 
+  it("names both when a history is deleted and published at once", () => {
+    const both = classify(
+      "update_history",
+      { history_id: "h1", deleted: true, published: true },
+      DESTROYS,
+    );
+    expect(both).toContain("Mark the entire history (h1) as deleted");
+    expect(both).toContain("Publish the entire history (h1)");
+  });
+
   it("classifies every operation galaxy-ops flags as destructive", () => {
     const headline = classify("delete_user_tool", { uuid: "u1" }, DESTROYS);
     expect(headline).toContain("delete_user_tool");

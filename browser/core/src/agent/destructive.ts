@@ -24,16 +24,15 @@ export function classify(
   if (!destroys(name, args)) {
     return undefined;
   }
-  if (name === "update_history" && args.deleted !== true) {
-    const suffix = typeof args.history_id === "string" ? ` (${args.history_id})` : "";
-    return `Publish the entire history${suffix}: anyone can then see it and every dataset in it.`;
-  }
   if (name === "update_history") {
     const suffix = typeof args.history_id === "string" ? ` (${args.history_id})` : "";
-    return (
+    const deleting =
       `Mark the entire history${suffix} as deleted — not just specific datasets. ` +
-      "Recoverable via Undelete on most Galaxy servers, but it affects the whole history."
-    );
+      "Recoverable via Undelete on most Galaxy servers, but it affects the whole history.";
+    const publishing = `Publish the entire history${suffix}: anyone can then see it and every dataset in it.`;
+    return [args.deleted === true && deleting, args.published === true && publishing]
+      .filter(Boolean)
+      .join(" ");
   }
   return `Run ${name} with ${JSON.stringify(args)}, which deletes or cancels and cannot be undone.`;
 }
