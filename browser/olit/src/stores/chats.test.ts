@@ -95,6 +95,9 @@ describe("a saved Olit chat", () => {
     const opened = (await saved.load("o1"))!;
     expect(opened.held).toEqual({ note: OTHER_VERSION_NOTE });
     expect(turnsOf(opened.document.entries)).toEqual([{ query: "q", response: "r" }]);
+    const added = await saved.save(opened.document, "o1");
+    expect(added).not.toBe("o1");
+    expect((rows.get("o1")!.document as SessionDocument).olit_session).toBe(SCHEMA + 1);
   });
 
   it("returns null for a document that is not a session", async () => {

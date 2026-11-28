@@ -138,6 +138,8 @@ export const chats: Store = {
       const created = await galaxy.post("api/chat/exchange", payload);
       return created.id;
     }
+    /** Chats opened with their questions and answers only, which a save keeps as they are. */
+    const held = new Set<string>();
     return {
       async load(id) {
         // Galaxy answers only with the signed-in user's own chats.
@@ -152,6 +154,7 @@ export const chats: Store = {
           );
           const note = saved === null ? HELD_NOTE : OTHER_VERSION_NOTE;
           found = { document: heldSession(messages), held: { note } };
+          held.add(id);
         }
         return found;
       },
@@ -162,7 +165,7 @@ export const chats: Store = {
         }
         const payload = { agent_type: AGENT_TYPE, messages, document };
         let saved: string;
-        if (id) {
+        if (id && !held.has(id)) {
           // Galaxy replaces only chats saved with a session; any other is saved as a new chat.
           saved = await galaxy.put(`api/chat/exchange/${segment(id)}`, payload).then(
             () => id,
