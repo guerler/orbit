@@ -24,8 +24,6 @@ export interface OlitIncoming {
   exchangeId?: string;
   /** Chat view: question to ask in a new conversation. */
   question?: string;
-  specs: Record<string, any>;
-  settings: Record<string, any>;
 }
 
 /** Reads Galaxy's data-incoming config; takes `visualization_id` from the page query if missing. */
@@ -47,8 +45,6 @@ export function parseIncoming(container: HTMLElement, hostSearch = ""): OlitInco
     datasetId: config.dataset_id,
     exchangeId: typeof config.exchange_id === "string" ? config.exchange_id : undefined,
     question: typeof config.question === "string" ? config.question : undefined,
-    specs: plugin.specs || raw.specs || {},
-    settings: config.settings || {},
   };
 }
 

@@ -164,7 +164,6 @@ export const CHAT_FORMATTING = chatFormatting({
 // loom: GALAXY_ARTIFACT_LINK_GUIDANCE. Shared text; the record and its directives are this shell's.
 const artifactLinks = (root?: string) =>
   artifactLinkGuidance({ record: "record", blocks: "```galaxy directives", root });
-export const ARTIFACT_LINKS = artifactLinks();
 
 /** loom: buildChatFormattingBlock(), with the artifact-link convention at its tail. */
 export function chatFormattingBlock(galaxyRoot?: string): string {

@@ -74,9 +74,6 @@ export interface Galaxy {
   bytes(path: string): Promise<Uint8Array>;
   post<T = any>(path: string, body?: unknown): Promise<T>;
   put<T = any>(path: string, body?: unknown): Promise<T>;
-  delete<T = any>(path: string): Promise<T>;
-  /** The fetch every Galaxy request goes through, for clients built on it. */
-  fetch: typeof fetch;
 }
 
 /**
@@ -196,8 +193,6 @@ export function connectGalaxy(options: GalaxyOptions): Galaxy {
     bytes: async (path) => new Uint8Array(await (await request("GET", path)).arrayBuffer()),
     post: (path, body = {}) => json("POST", path, body),
     put: (path, body = {}) => json("PUT", path, body),
-    delete: (path) => json("DELETE", path),
-    fetch: send,
   };
 }
 
