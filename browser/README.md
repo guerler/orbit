@@ -28,7 +28,8 @@ its chat proxy); a current Chrome or Firefox (Safari is untested).
    Assistant**. Olit works in that dataset's history.
 4. Pick a provider and paste its key: Gemini, DeepSeek, OpenRouter, OpenAI, Anthropic, Groq,
    Mistral, xAI, Jetstream2, a local OpenAI-compatible server, or Galaxy's chat proxy. The key is
-   kept for this tab only and sent nowhere but to the provider.
+   kept for this tab only, and Olit sends it only to the provider. Like anything a Galaxy page
+   keeps, other code running on Galaxy's pages in that tab can read it.
 
 Olit keeps its conversation in the browser's private file system, so a reload continues where you
 left off; a private window keeps it in memory and says so. **Save** stores the conversation in
@@ -77,10 +78,11 @@ For a shell, local software or unrestricted networking, use Orbit.
 
 ## Scope
 
-`run_python` runs in Pyodide. Top-level `await` and `pyfetch` work; network access follows browser
-rules, so CORS-enabled APIs are reachable and other sites are not. Galaxy is reached only through
-Olit's Galaxy tools, where destructive operations ask before they run. Stop ends a running Python
-call.
+`run_python` runs in Pyodide, in a worker without the Galaxy login, the page's storage or the model
+key. Top-level `await` and `pyfetch` work. Its requests can reach any host, without credentials;
+only hosts that send CORS headers let it read the response. Galaxy is reached through Olit's Galaxy
+tools. Olit asks before deleting, cancelling or publishing; other Galaxy writes and Python's requests
+run without asking. Stop ends a running Python call.
 
 ## Development
 
