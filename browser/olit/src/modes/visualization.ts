@@ -7,6 +7,18 @@ import type { OlitMode } from "./mode";
 
 export const visualizationMode: OlitMode = {
   async mount(container, incoming, mounting) {
+    // Galaxy listens on this window for Olit's reports; a visualization shown inside Olit posts
+    // its own reports here too, and they must not reach Galaxy as Olit's.
+    window.addEventListener(
+      "message",
+      (event) => {
+        const frames = Array.from(document.querySelectorAll("iframe"));
+        if (frames.some((frame) => frame.contentWindow === event.source)) {
+          event.stopImmediatePropagation();
+        }
+      },
+      { capture: true, signal: mounting?.signal },
+    );
     await mountOrbitBrowser(container, {
       ...shellOptions(
         incoming,
