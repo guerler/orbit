@@ -38,22 +38,6 @@ export function chatCommand(data: unknown): ChatCommand | null {
   return command;
 }
 
-/**
- * Takes Galaxy AI's commands from the page that embeds Olit, at the origin of Galaxy's `root`. Galaxy
- * sends them after Olit's first message, so this listens before Olit sends one. Every engine names the
- * parent as the source of what the parent posts here.
- */
-export function listenToGalaxy(root: string, onCommand: (command: ChatCommand) => void) {
-  const origin = new URL(root, document.baseURI).origin;
-  const parent = window.parent;
-  window.addEventListener("message", (event) => {
-    const command = chatCommand(event.data);
-    if (command && parent !== window && event.source === parent && event.origin === origin) {
-      onCommand(command);
-    }
-  });
-}
-
 export function listenToElement(
   { element, signal }: Mounting,
   onCommand: (command: ChatCommand) => void,

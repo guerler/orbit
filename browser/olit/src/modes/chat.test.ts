@@ -41,37 +41,30 @@ vi.mock("../launch", () => ({
 
 let told: any[];
 let order: string[];
-let listeners: EventListenerOrEventListenerObject[];
-/** Galaxy's page, which posts commands into Olit's window */
-const parent = {};
+/** The olit-plugin element as Galaxy AI mounts it: commands go in and reports come out as events. */
+let element: HTMLElement;
+let mounting: { element: HTMLElement; signal: AbortSignal };
 beforeEach(() => {
   shells.length = 0;
   mountDelay = 0;
   told = [];
   order = [];
-  listeners = [];
-  Object.defineProperty(window, "parent", { value: parent, configurable: true });
-  const add = window.addEventListener.bind(window);
-  vi.spyOn(window, "addEventListener").mockImplementation(
+  element = document.createElement("div");
+  mounting = { element, signal: new AbortController().signal };
+  const add = element.addEventListener.bind(element);
+  vi.spyOn(element, "addEventListener").mockImplementation(
     (type: string, listener: any, options?: any) => {
-      if (type === "message") {
-        order.push("listen");
-        listeners.push(listener);
-      }
+      if (type === "galaxy") order.push("listen");
       add(type, listener, options);
     },
   );
-  vi.spyOn(window, "postMessage").mockImplementation((message: unknown) => {
+  add("galaxy-visualization", (event) => {
     order.push("tell");
-    told.push(message);
+    told.push((event as CustomEvent).detail);
   });
 });
 
-afterEach(() => {
-  listeners.forEach((listener) => window.removeEventListener("message", listener));
-  vi.restoreAllMocks();
-  Object.defineProperty(window, "parent", { value: window, configurable: true });
-});
+afterEach(() => vi.restoreAllMocks());
 
 async function mountWith(config: object) {
   const container = document.createElement("div");
@@ -79,23 +72,16 @@ async function mountWith(config: object) {
     root: `${GALAXY}/`,
     visualization_config: { view: "chat", ...config },
   });
-  await chatMode.mount(container, parseIncoming(container));
+  await chatMode.mount(container, parseIncoming(container), mounting);
   return shells.at(-1)!;
 }
 
 const settled = () => new Promise((resolve) => setTimeout(resolve, 20));
-/** Posts as Galaxy does: from the parent, at Galaxy's origin */
-const command = (data: object, source: unknown = parent, origin = GALAXY) =>
-  window.dispatchEvent(
-    new MessageEvent("message", {
-      data: { from: "galaxy", ...data },
-      source: source as Window,
-      origin,
-    }),
-  );
+/** Sends a command as Galaxy AI does: an event on the element. */
+const command = (detail: object) => element.dispatchEvent(new CustomEvent("galaxy", { detail }));
 const fromGalaxy = async (data: object) => {
   await settled();
-  command(data);
+  command({ from: "galaxy", ...data });
 };
 const charts = (saved: boolean, config?: object) => ({
   from: "galaxy-visualization",
@@ -142,19 +128,11 @@ describe("chat mode", () => {
     ]);
   });
 
-  it("takes commands only from the page that embeds it, at Galaxy's origin", async () => {
+  it("takes only Galaxy's commands", async () => {
     const shell = await mountWith({});
     await settled();
-    command({ type: "ask", question: "From itself?" }, window);
-    command({ type: "ask", question: "From elsewhere?" }, parent, "https://elsewhere.example");
-    command({ type: "ask", question: "" });
-    window.dispatchEvent(
-      new MessageEvent("message", {
-        data: { type: "ask", question: "Unmarked?" },
-        source: parent as Window,
-        origin: GALAXY,
-      }),
-    );
+    command({ from: "galaxy", type: "ask", question: "" });
+    command({ type: "ask", question: "Unmarked?" });
     await settled();
     expect(shell.asked).toEqual([]);
   });
@@ -186,12 +164,12 @@ describe("chat mode", () => {
       root: `${GALAXY}/`,
       visualization_config: { view: "chat" },
     });
-    const mounting = chatMode.mount(container, parseIncoming(container));
+    const mounted = chatMode.mount(container, parseIncoming(container), mounting);
     await new Promise((resolve) => setTimeout(resolve, 1));
-    command({ type: "ask", question: "Before?" });
-    command({ type: "open", exchange_id: "c2" });
-    command({ type: "ask", question: "After?" });
-    await mounting;
+    command({ from: "galaxy", type: "ask", question: "Before?" });
+    command({ from: "galaxy", type: "open", exchange_id: "c2" });
+    command({ from: "galaxy", type: "ask", question: "After?" });
+    await mounted;
     await new Promise((resolve) => setTimeout(resolve, 60));
     expect(shells.map((shell) => shell.asked)).toEqual([["Before?"], ["After?"]]);
     expect(shells[0]!.disposed).toBe(true);

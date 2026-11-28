@@ -260,47 +260,6 @@ const escapeAttr = (text) =>
 // opened on a dataset `{ dataset_id }` and nothing else: no history, and a title only for a
 // saved visualization. With `view=chat`, the plugin is mounted as the chat with `{ view: "chat" }`
 // plus `exchange_id` or `question`.
-/**
- * Host page that hosts the plugin as Galaxy AI's chat, as Galaxy's AiChatBrain does: one frame whose
- * Charts messages, posted to its own window at Galaxy's origin, are its reports, the first saying it is
- * ready; commands go into the frame at Galaxy's origin, in order, once it is. Counts the frame's workers
- * and page loads, and can send a command from another frame.
- */
-function galaxyAi(config) {
-    return [
-        "  const config = " + JSON.stringify(config) + ";",
-        "  const record = (window.__galaxyAi = { mounts: [config], reports: [], workers: 0 });",
-        "  const frame = document.getElementById('galaxy_visualization');",
-        "  const queue = [];",
-        "  let ready = false, active, unsaved;",
-        "  const deliver = () => { while (ready && queue.length) frame.contentWindow.postMessage({ from: 'galaxy', ...queue.shift() }, window.location.origin); };",
-        "  frame.contentWindow.addEventListener('message', (event) => {",
-        "    const m = event.data;",
-        "    if (m?.from !== 'galaxy-visualization' || event.origin !== window.location.origin) return;",
-        "    if (!ready) { ready = true; record.reports.push({ type: 'ready' }); }",
-        "    if (typeof m.visualization_saved === 'boolean' && !m.visualization_saved !== unsaved) {",
-        "      unsaved = !m.visualization_saved;",
-        "      record.reports.push({ type: 'unsaved', value: unsaved });",
-        "    }",
-        "    const id = m.visualization_config?.exchange_id;",
-        "    if (id !== undefined && id !== active) { active = id; record.reports.push({ type: 'active', exchange_id: id }); }",
-        "    deliver();",
-        "  });",
-        "  window.__command = (command) => { queue.push(command); deliver(); };",
-        "  window.__foreign = (command) => {",
-        "    const other = document.body.appendChild(document.createElement('iframe'));",
-        "    other.style.display = 'none';",
-        "    const message = { from: 'galaxy', ...command };",
-        "    other.contentWindow.Function('target', 'message', \"target.postMessage(message, '*');\")(frame.contentWindow, message);",
-        "  };",
-        "  const view = frame.contentWindow;",
-        "  const Worker = view.Worker;",
-        "  view.Worker = function (...args) { record.workers++; return new Worker(...args); };",
-        "  view.__page = 'first';",
-        "  fill(frame.contentDocument, config);",
-    ];
-}
-
 function hostPage(url) {
     const params = new URL(url, "http://127.0.0.1:8099").searchParams;
     const datasetId = params.get("dataset_id");
@@ -409,9 +368,7 @@ function hostPage(url) {
             "      doc.head.appendChild(link);",
             "    }",
             "  };",
-            ...(asChat
-                ? galaxyAi(incoming.visualization_config)
-                : [`  fill(document.getElementById('galaxy_visualization').contentDocument, ${JSON.stringify(incoming.visualization_config)});`]),
+            `  fill(document.getElementById('galaxy_visualization').contentDocument, ${JSON.stringify(incoming.visualization_config)});`,
             "})();",
         ].join("\n");
         return [

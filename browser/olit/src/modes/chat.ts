@@ -1,6 +1,6 @@
 /** Runs Olit as Galaxy AI's chat, saved to Galaxy's chats. Galaxy mounts it once and sends it commands. */
 import { mountOrbitBrowser, type OrbitBrowserHandle } from "@galaxyproject/orbit-browser";
-import { type ChatCommand, listenToElement, listenToGalaxy, tellHost } from "../host";
+import { type ChatCommand, listenToElement, tellHost } from "../host";
 import { type LaunchRequest, shellOptions } from "../launch";
 import { chats } from "../stores/chats";
 import type { OlitMode } from "./mode";
@@ -13,11 +13,8 @@ export const chatMode: OlitMode = {
     const take = (command: ChatCommand) => {
       work = work.then(() => run(command)).catch(failed);
     };
-    if (mounting) {
-      listenToElement(mounting, take);
-    } else {
-      listenToGalaxy(incoming.root, take);
-    }
+    // Galaxy AI sends commands to the olit-plugin element; a page mounted otherwise takes none.
+    if (mounting) listenToElement(mounting, take);
 
     /** What Galaxy was last told: the chat shown, once known, and whether it has unsaved changes. */
     let active: string | null | undefined;

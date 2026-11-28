@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { chatCommand, listenToElement, listenToGalaxy, tellHost } from "./host";
+import { chatCommand, listenToElement, tellHost } from "./host";
 
 const GALAXY = "https://galaxy.example";
 const later = () => new Promise((resolve) => setTimeout(resolve, 10));
@@ -46,36 +46,6 @@ describe("chatCommand", () => {
     expect(chatCommand({ from: "galaxy", type: "ask", question: "" })).toBeNull();
     expect(chatCommand({ from: "galaxy", type: "open", exchange_id: 3 })).toBeNull();
     expect(chatCommand({ from: "galaxy-visualization", visualization_saved: true })).toBeNull();
-  });
-});
-
-describe("listenToGalaxy", () => {
-  const ask = { from: "galaxy", type: "ask", question: "Hi" };
-  const post = (source: unknown, origin = GALAXY) =>
-    window.dispatchEvent(
-      new MessageEvent("message", { data: ask, source: source as Window, origin }),
-    );
-
-  it("takes commands only from the page that embeds it, at Galaxy's origin", async () => {
-    const parent = {};
-    Object.defineProperty(window, "parent", { value: parent, configurable: true });
-    const commands: unknown[] = [];
-    listenToGalaxy(`${GALAXY}/root/`, (command) => commands.push(command));
-    post(window);
-    post(parent, "https://elsewhere.example");
-    await later();
-    expect(commands).toEqual([]);
-    post(parent);
-    await later();
-    expect(commands).toEqual([{ type: "ask", question: "Hi" }]);
-  });
-
-  it("takes no commands when it is not embedded", async () => {
-    const commands: unknown[] = [];
-    listenToGalaxy(window.location.href, (command) => commands.push(command));
-    post(window, window.location.origin);
-    await later();
-    expect(commands).toEqual([]);
   });
 });
 
