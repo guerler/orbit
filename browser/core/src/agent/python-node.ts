@@ -27,7 +27,8 @@ const wheelsDir = () =>
 /**
  * The realm headless: a Node child with an empty environment, allowed to read Pyodide and the
  * wheels the browser build ships (`npm run build:pyodide`) and nothing else, so it holds no key
- * and no file of the host's. Network is not restricted, as in the browser.
+ * and no file of the host's. Network is not restricted and, unlike the browser, has no CORS: run
+ * it only where Python may reach whatever the machine can.
  */
 export function nodePython(dir = pyodideDir()): Python {
   const packageCacheDir = wheelsDir();

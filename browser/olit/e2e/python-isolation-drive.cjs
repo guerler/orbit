@@ -89,6 +89,7 @@ const seen = async () => (await fetch(`${STUB}/__seen`)).json();
         "the agent's own Galaxy requests carry the session",
         cookies.some((c) => !c.url.includes("from=python") && /galaxysession=e2e-session/.test(c.cookie || "")),
     );
+    check("Python cannot open an EventSource, which may carry the session", probe.eventsource === "refused", probe.eventsource);
     check("Python has no storage of the page's origin", probe.storage === "blocked", probe.storage);
     check("Python cannot see the agent's worker", probe.canary === false, String(probe.canary));
     check(

@@ -11,7 +11,7 @@ export interface Channel {
   close(): void;
 }
 
-type Reply = { id: number; ok: boolean; value?: unknown; error?: unknown };
+type Reply = { id: number; ok: boolean; value?: unknown; error?: unknown; reset?: boolean };
 type AssetRequest = { op: "asset"; id: unknown; url: unknown };
 
 const isReply = (m: unknown): m is Reply =>
@@ -44,17 +44,23 @@ export function realmPython(
           } else {
             waiting?.reject(new Error(String(message.error)));
           }
+          // A realm that could not start Pyodide is replaced on the next call.
+          if (message.reset && channel === c) {
+            channel = undefined;
+            c.close();
+          }
         } else if (isAssetRequest(message)) {
           onAsset?.(message, c);
         }
       },
       (reason) => {
+        // A realm already replaced leaves the requests of the one after it alone.
         if (channel === c) {
           channel = undefined;
+          const stopped = new Error(`Python ${reason}; its state was reset.`);
+          pending.forEach(({ reject }) => reject(stopped));
+          pending.clear();
         }
-        const stopped = new Error(`Python ${reason}; its state was reset.`);
-        pending.forEach(({ reject }) => reject(stopped));
-        pending.clear();
       },
     );
     return c;

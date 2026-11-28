@@ -3,11 +3,14 @@
  * session's environment and the host's files. The browser realm is proven by e2e/run-python.
  */
 
+import { cpSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { nodePython } from "./python-node";
+import { nodePython, pyodideDir } from "./python-node";
 
 const SECRET = "OLIT_REALM_TEST_SECRET";
 let server: Server;
@@ -15,7 +18,7 @@ let url: string;
 
 beforeAll(async () => {
   server = createServer((_req, res) => {
-    res.writeHead(200, { "access-control-allow-origin": "*" });
+    res.writeHead(200);
     res.end("public");
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -33,7 +36,8 @@ describe("nodePython", () => {
     expect(await python.run("float(xs.mean())")).toBe("6.0");
   }, 120_000);
 
-  it("reaches the network with top-level await", async () => {
+  // Node applies no CORS: headless, Python reads hosts a browser would not let it read.
+  it("reaches the network with top-level await, CORS or not", async () => {
     expect(await python.run(`r = await pyfetch("${url}")\nf"{r.status}:{await r.string()}"`)).toBe(
       "'200:public'",
     );
@@ -59,6 +63,15 @@ describe("nodePython", () => {
     expect(new TextDecoder().decode(await python.read("/data/out.txt"))).toBe("ABC");
     expect(await python.read("/data/missing")).toBeUndefined();
   });
+
+  it("starts afresh after Pyodide could not start", async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "pyodide-")));
+    const late = nodePython(dir);
+    await expect(late.run("1 + 1")).rejects.toThrow();
+    cpSync(pyodideDir(), dir, { recursive: true });
+    expect(await late.run("1 + 1")).toBe("2");
+    rmSync(dir, { recursive: true, force: true });
+  }, 120000);
 
   it("ends a run that never returns when it is aborted, and starts afresh", async () => {
     const controller = new AbortController();

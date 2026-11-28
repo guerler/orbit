@@ -4,8 +4,9 @@
 // python.ts starts this file from its text. In the browser it is a data: URL worker, whose origin
 // is opaque: no Galaxy cookie is same-origin to it, it has no storage, and the agent's state and
 // model key live in another worker it cannot reach. Headless it is a Node child with an empty
-// environment, under the permission model, reading only Pyodide's own files. Network stays: what
-// a browser lets any page read under CORS, Python can read here too.
+// environment, under the permission model, reading only Pyodide's own files. Network stays: in
+// the browser, Python can read what any page can under CORS, without credentials. Headless, Node
+// applies no CORS, so Python can read any host the machine reaches, local ones included.
 //
 // One protocol either way, and nothing that comes back from here is trusted by the other side.
 
@@ -75,12 +76,9 @@ function withoutCredentials(indexURL) {
     set: () => undefined,
     configurable: false,
   });
-  const NativeEventSource = self.EventSource;
-  lock("EventSource", function (url) {
-    return new NativeEventSource(url);
-  });
-  // A WebSocket handshake carries cookies and has no way to omit them; a nested worker would be
-  // a fresh realm with none of this in place.
+  // An EventSource or a WebSocket handshake can carry cookies; a nested worker would be a fresh
+  // realm with none of this in place.
+  lock("EventSource", refuse("EventSource"));
   lock("WebSocket", refuse("WebSocket"));
   lock("Worker", refuse("Worker"));
 }
@@ -144,11 +142,13 @@ async function execute({ py, run }, code) {
 }
 
 let ready;
+/** Set when Pyodide did not start: the trusted side then ends this realm for a fresh one. */
+let unbooted = false;
 
 async function handle(message) {
   if (message.op === "boot") {
     ready = boot(message).then(async (py) => ({ py, run: await py.runPythonAsync(HARNESS) }));
-    ready.catch(() => undefined);
+    ready.catch(() => (unbooted = true));
     return;
   }
   if (message.op === "asset") {
@@ -179,7 +179,7 @@ async function handle(message) {
     }
     send({ id, ok: true, value });
   } catch (err) {
-    send({ id, ok: false, error: String(err?.message ?? err) });
+    send({ id, ok: false, error: String(err?.message ?? err), ...(unbooted && { reset: true }) });
   }
 }
 
