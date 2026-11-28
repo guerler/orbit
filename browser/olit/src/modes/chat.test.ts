@@ -8,6 +8,8 @@ interface Shell {
   options: any;
   asked: string[];
   disposed: boolean;
+  /** A save running in this shell, if any. */
+  saving?: Promise<void>;
 }
 const shells: Shell[] = [];
 let mountDelay = 0;
@@ -19,6 +21,7 @@ vi.mock("@galaxyproject/orbit-browser", () => ({
     return {
       dispose: () => (shell.disposed = true),
       ask: (question: string) => shell.asked.push(question),
+      settled: async () => shell.saving,
     };
   }),
 }));
@@ -191,6 +194,47 @@ describe("chat mode", () => {
     await mounting;
     await new Promise((resolve) => setTimeout(resolve, 60));
     expect(shells.map((shell) => shell.asked)).toEqual([["Before?"], ["After?"]]);
+    expect(shells[0]!.disposed).toBe(true);
+  });
+
+  it("opens another chat only once the shown one's save has ended", async () => {
+    await mountWith({});
+    let finish = () => {};
+    shells[0]!.saving = new Promise<void>((resolve) => (finish = resolve));
+    await fromGalaxy({ type: "open", exchange_id: "c2" });
+    await settled();
+    expect([shells.length, shells[0]!.disposed]).toEqual([1, false]);
+    finish();
+    await settled();
+    expect([shells.length, shells[0]!.disposed]).toEqual([2, true]);
+  });
+
+  it("runs commands Galaxy's element sends on the first report, after the shell is up", async () => {
+    mountDelay = 10;
+    const element = document.createElement("div");
+    const send = (data: object) =>
+      element.dispatchEvent(new CustomEvent("galaxy", { detail: { from: "galaxy", ...data } }));
+    // As Galaxy AI does: the first report marks the plugin ready, and queued commands go at once.
+    element.addEventListener(
+      "galaxy-visualization",
+      () => {
+        send({ type: "ask", question: "Queued?" });
+        send({ type: "open", exchange_id: "c9" });
+      },
+      { once: true },
+    );
+    const container = document.createElement("div");
+    container.dataset.incoming = JSON.stringify({
+      root: `${GALAXY}/`,
+      visualization_config: { view: "chat", exchange_id: "c1" },
+    });
+    const mounting = { element, signal: new AbortController().signal };
+    await chatMode.mount(container, parseIncoming(container), mounting);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(shells.map((shell) => [shell.options.request.savedId, shell.asked])).toEqual([
+      ["c1", ["Queued?"]],
+      ["c9", []],
+    ]);
     expect(shells[0]!.disposed).toBe(true);
   });
 });

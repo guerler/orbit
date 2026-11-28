@@ -41,6 +41,8 @@ export const chatMode: OlitMode = {
 
     /** Shows `request` in a new shell, in place of the one shown. */
     async function show(request: LaunchRequest) {
+      // A save in progress ends before its conversation is replaced.
+      await shown?.settled();
       shown?.dispose();
       shown = undefined;
       // A newly opened conversation has no unsaved changes.
@@ -64,11 +66,16 @@ export const chatMode: OlitMode = {
       }
     }
 
-    work = show({
-      savedId: incoming.exchangeId,
-      question: incoming.question,
-      datasetId: incoming.datasetId,
-    }).catch(failed);
+    // On the chain, so commands Galaxy sends on the first report run after this shell is up.
+    work = work
+      .then(() =>
+        show({
+          savedId: incoming.exchangeId,
+          question: incoming.question,
+          datasetId: incoming.datasetId,
+        }),
+      )
+      .catch(failed);
     await work;
   },
 };
