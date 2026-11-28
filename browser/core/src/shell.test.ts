@@ -160,13 +160,6 @@ describe("saved sessions in this browser", () => {
       return found;
     });
     expect(saved.savedId).toBe("chat/c1");
-    worker.say({
-      type: "reply",
-      id: saved.id,
-      error: "storage is gone",
-    } as unknown as WorkerMessage);
-    await vi.waitFor(() => expect(container.textContent).toContain("storage is gone"));
-    expect(container.querySelector("#ext-overlay")!.classList.contains("hidden")).toBe(true);
   });
 
   it("offers the conversation as a download when it cannot be saved", async () => {
@@ -213,6 +206,129 @@ describe("saved sessions in this browser", () => {
     expect(clicked).toHaveBeenCalledTimes(1);
     made.mockRestore();
     clicked.mockRestore();
+  });
+});
+
+describe("a save that Galaxy answers late", () => {
+  const exportedDocument = { olit_session: 1, session: { id: "a", title: "" }, entries: [] };
+  const snapshot = (text: string) =>
+    ({
+      type: "events",
+      events: [
+        {
+          type: "snapshot",
+          entries: [{ kind: "pi.user", model: [{ role: "user", content: text }] }],
+          usage: { models: {} },
+        },
+      ],
+    }) as unknown as WorkerMessage;
+  const sent = (worker: ReturnType<typeof fakeWorker>, type: string, count = 1) =>
+    vi.waitFor(() => {
+      const found = worker.sent.filter((m) => m.type === type);
+      if (found.length < count) throw new Error(`no ${type} yet`);
+      return found[count - 1];
+    });
+
+  /** Mounts with a store whose first save waits for `finish`; later saves answer at once. */
+  async function slowSave(extra: { ready?: object } = {}) {
+    const worker = fakeWorker();
+    const calls = {
+      saves: [] as (string | undefined)[],
+      states: [] as boolean[],
+      active: [] as (string | null)[],
+    };
+    let finish: ((id: string) => void) | undefined;
+    const handle = await mountOrbitBrowser(container, {
+      ...base,
+      createWorker: () => worker as unknown as Worker,
+      launch: async () => ({ historyId: "h1" }),
+      sessions: {
+        kind: "chat",
+        savedNote: "Saved.",
+        save: (_document, id) => {
+          calls.saves.push(id);
+          return calls.saves.length === 1
+            ? new Promise((resolve) => (finish = resolve))
+            : Promise.resolve(id ?? "c2");
+        },
+        savedState: (saved) => calls.states.push(saved),
+        active: (id) => calls.active.push(id),
+      },
+    });
+    worker.say({
+      type: "ready",
+      galaxy: { connected: true },
+      ...extra.ready,
+    } as unknown as WorkerMessage);
+    worker.say(snapshot("first question"));
+    const save = container.querySelector<HTMLButtonElement>("#save-btn")!;
+    save.click();
+    const exported = await sent(worker, "export");
+    worker.say({ type: "reply", id: exported.id, value: exportedDocument });
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    return { worker, handle, calls, save, finish: (id: string) => finish!(id) };
+  }
+
+  it("keeps Save off until it ends, whatever the worker says meanwhile", async () => {
+    const { worker, save, finish } = await slowSave();
+    worker.say(snapshot("first question"));
+    expect(save.disabled).toBe(true);
+    finish("c1");
+    const noted = await sent(worker, "saved");
+    expect(save.disabled).toBe(true);
+    worker.say({ type: "reply", id: noted.id, value: undefined } as unknown as WorkerMessage);
+    await vi.waitFor(() => expect(save.disabled).toBe(false));
+  });
+
+  it("holds New, Send and the host's questions until it ends", async () => {
+    const { worker, handle, save, finish } = await slowSave();
+    const reset = container.querySelector<HTMLButtonElement>("#reset-btn")!;
+    const input = container.querySelector<HTMLTextAreaElement>("#input")!;
+    expect([reset.disabled, input.disabled]).toEqual([true, true]);
+    reset.click();
+    handle.ask("asked meanwhile");
+    let settled = false;
+    void handle.settled().then(() => (settled = true));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(worker.sent.some((m) => m.type === "reset" || m.type === "submit")).toBe(false);
+    expect(settled).toBe(false);
+    finish("c1");
+    const noted = await sent(worker, "saved");
+    worker.say({ type: "reply", id: noted.id, value: undefined } as unknown as WorkerMessage);
+    await vi.waitFor(() => expect(settled).toBe(true));
+    expect(save.textContent).toBe("Saved");
+    // The question waited for the save, then started a new conversation for itself.
+    await vi.waitFor(() => expect(worker.sent.some((m) => m.type === "reset")).toBe(true));
+  });
+
+  it("tells the host nothing once the page is disposed", async () => {
+    const { worker, handle, calls, finish } = await slowSave();
+    const before = calls.active.length;
+    handle.dispose();
+    finish("c1");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls.active.length).toBe(before);
+    expect(worker.sent.some((m) => m.type === "saved")).toBe(false);
+  });
+
+  it("is reported saved though this browser could not note it", async () => {
+    const { worker, calls, save, finish } = await slowSave();
+    finish("c1");
+    const noted = await sent(worker, "saved");
+    worker.say({
+      type: "reply",
+      id: noted.id,
+      error: "storage is gone",
+    } as unknown as WorkerMessage);
+    await vi.waitFor(() => expect(save.textContent).toBe("Saved"));
+    expect(calls.states.at(-1)).toBe(true);
+    expect(container.textContent).not.toContain("Could not save");
+  });
+
+  it("is where a conversation this browser kept was saved", async () => {
+    const { calls } = await slowSave({ ready: { savedAs: "chat/c7" } });
+    expect(calls.active).toContain("c7");
+    expect(calls.saves).toEqual(["c7"]);
   });
 });
 

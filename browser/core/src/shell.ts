@@ -129,6 +129,8 @@ export interface OrbitBrowserHandle {
    * it. A run in progress is held, as New would hold it.
    */
   ask(question: string): void;
+  /** Resolves once no save is running; a host waits for it before it replaces the conversation. */
+  settled(): Promise<void>;
 }
 
 /** With no dataset to start from, the conversation is Galaxy's current history's. */
@@ -203,6 +205,8 @@ export async function mountOrbitBrowser(
   const asks: string[] = [];
   /** Asks the next question once the page can; set once the page is up. */
   let askNext = () => {};
+  /** The save running, if any: nothing changes the conversation until it ends. */
+  let saving: Promise<void> | undefined;
   const handle: OrbitBrowserHandle = {
     dispose() {
       mounted.abort();
@@ -216,6 +220,7 @@ export async function mountOrbitBrowser(
       asks.push(question);
       askNext();
     },
+    settled: async () => saving,
   };
   const artifactPane = mountArtifactPane(container, mounted.signal, brand);
   useChatMarkdown();
@@ -306,6 +311,7 @@ export async function mountOrbitBrowser(
   const dictation = mountDictation(el.mic, el.input, {
     consent: rememberedConsent(`${brand.id}.dictationConsent`, (request) => confirm.ask(request)),
   });
+  mounted.signal.addEventListener("abort", () => dictation?.cancel());
 
   let busy = false;
   let ready = false;
@@ -326,7 +332,7 @@ export async function mountOrbitBrowser(
   function ended(outcome: RunOutcome) {
     if (outcome.error) console.error(`[${brand.id}] run failed`, outcome.error);
     say(outcomeNotice(outcome));
-    if (el.save) el.save.textContent = "Save";
+    if (el.save && !saving) el.save.textContent = "Save";
     sessions?.savedState(false);
     refreshControls();
   }
@@ -376,10 +382,11 @@ export async function mountOrbitBrowser(
    * message.
    */
   function refreshControls() {
-    if (el.save) el.save.disabled = busy || !ready || view.turns === 0;
+    if (el.save) el.save.disabled = !!saving || busy || !ready || view.turns === 0;
     el.model.disabled = !ready;
-    el.input.disabled = !ready;
-    el.send.disabled = !ready;
+    el.input.disabled = !ready || !!saving;
+    el.send.disabled = !ready || !!saving;
+    el.reset.disabled = !!saving;
     el.reset.classList.toggle("hidden", view.turns === 0);
   }
 
@@ -412,14 +419,17 @@ export async function mountOrbitBrowser(
     container,
     respond: (id, approved) => agent.confirm(Number(id), approved),
     note: (text) => info(text),
+    signal: mounted.signal,
   });
 
   /** Said once ready, when the user chose to continue a record whose conversation is gone. */
   let continuing: string | undefined;
+  /** "Use it here", offered while another tab holds the session. */
+  let take: HTMLButtonElement | undefined;
 
   /** Asks the host's next question in an empty conversation, starting one when needed. */
   askNext = () => {
-    if (asks.length && ready && afterReset === undefined) {
+    if (asks.length && ready && !saving && afterReset === undefined) {
       if (view.turns || busy) {
         startNew(busy);
       } else {
@@ -449,7 +459,12 @@ export async function mountOrbitBrowser(
       confirm.dismiss(String(message.id));
     } else if (message.type === "ready") {
       ready = true;
+      take?.remove();
       galaxyStatus = message.galaxy;
+      const kind = `${sessions?.kind}/`;
+      if (sessions && savedId === undefined && message.savedAs?.startsWith(kind)) {
+        showing(message.savedAs.slice(kind.length));
+      }
       refreshControls();
       readyNotices({
         unkept: message.unkept,
@@ -497,14 +512,15 @@ export async function mountOrbitBrowser(
       choices.append(fresh);
     } else if (message.type === "waiting") {
       const line = info("This session is open in another tab. ");
-      const take = document.createElement("button");
-      take.className = "plan-btn";
-      take.textContent = "Use it here";
-      take.addEventListener("click", () => {
-        take.disabled = true;
+      const button = document.createElement("button");
+      button.className = "plan-btn";
+      button.textContent = "Use it here";
+      button.addEventListener("click", () => {
+        button.disabled = true;
         agent.open({ ...opening, steal: true });
       });
-      line.append(take);
+      line.append(button);
+      take = button;
     } else if (message.type === "lost") {
       ready = false;
       refreshControls();
@@ -544,30 +560,44 @@ export async function mountOrbitBrowser(
   // Saving is deliberate, as for any other Galaxy visualization: a revision then marks a
   // save the user asked for rather than a conversation turn.
   const save = el.save;
-  save?.addEventListener("click", async () => {
-    save.disabled = true;
-    save.textContent = "Saving...";
+  save?.addEventListener("click", () => {
+    saving = saveConversation(save).finally(() => {
+      saving = undefined;
+      refreshControls();
+      askNext();
+    });
+    refreshControls();
+  });
+
+  /** Exports, saves to Galaxy, and notes the save here; failures are said, not thrown. */
+  async function saveConversation(button: HTMLButtonElement) {
+    button.textContent = "Saving...";
     let exported: SessionDocument | undefined;
     let id: string | undefined;
     try {
       exported = await agent.export("");
       id = await sessions!.save(exported, savedId);
-      showing(id);
-      await agent.saved(keptAs(id), exported);
-      save.textContent = "Saved";
-      sessions!.savedState(true);
-      info(sessions!.savedNote);
     } catch (e) {
       // The conversation itself is untouched; only the save failed.
       console.error(`[${brand.id}] could not save the session`, e);
-      save.textContent = "Save";
-      const reason = briefly(String(e));
-      chat.addErrorMessage(`Could not save this conversation: ${reason}`);
-      if (exported && id === undefined) offerDownload(exported, reason);
-    } finally {
-      refreshControls();
+      if (!mounted.signal.aborted) {
+        button.textContent = "Save";
+        const reason = briefly(String(e));
+        chat.addErrorMessage(`Could not save this conversation: ${reason}`);
+        if (exported) offerDownload(exported, reason);
+      }
     }
-  });
+    if (id !== undefined && !mounted.signal.aborted) {
+      // Galaxy has it; this browser's note only lets a reload reopen it as that save.
+      await agent
+        .saved(keptAs(id), exported!)
+        .catch((e) => console.warn(`[${brand.id}] could not note the save here`, e));
+      showing(id);
+      button.textContent = "Saved";
+      sessions!.savedState(true);
+      info(sessions!.savedNote);
+    }
+  }
 
   /** Offers a conversation that could not be saved as a Markdown file. */
   async function offerDownload(exported: SessionDocument, reason: string) {
@@ -590,7 +620,7 @@ export async function mountOrbitBrowser(
 
   function submit() {
     const text = el.input.value.trim();
-    if (!text || busy) {
+    if (!text || busy || saving) {
       return;
     }
     if (!ready) {
@@ -618,7 +648,7 @@ export async function mountOrbitBrowser(
   el.abort.addEventListener("click", stop);
   // loom: "reset session -- fresh start, no --continue".
   el.reset.addEventListener("click", () => {
-    if (!busy && ready) {
+    if (!busy && ready && !saving) {
       startNew();
     }
   });

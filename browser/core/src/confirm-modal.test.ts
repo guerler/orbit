@@ -2,20 +2,32 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createConfirm } from "./confirm-modal";
 
-function modal() {
+function modal(signal?: AbortSignal) {
   const container = document.createElement("div");
   container.innerHTML =
     '<div id="ext-overlay" class="hidden"><div id="ext-title"></div><div id="ext-message"></div>' +
     '<button id="ext-accept"></button><button id="ext-deny"></button></div>';
   const respond = vi.fn();
   const note = vi.fn();
-  const confirm = createConfirm({ container, respond, note });
+  const confirm = createConfirm({ container, respond, note, signal });
   const $ = (id: string) => container.querySelector<HTMLElement>(id)!;
   const open = () => !$("#ext-overlay").classList.contains("hidden");
   return { confirm, respond, note, open, accept: () => $("#ext-accept").click(), $ };
 }
 
 describe("the confirmation modal", () => {
+  it("is taken down with the page, and leaves Escape to the next one", async () => {
+    const mounted = new AbortController();
+    const { confirm, open, $ } = modal(mounted.signal);
+    const asked = confirm.ask({ title: "Download", message: "Download it?" });
+    mounted.abort();
+    expect(open()).toBe(false);
+    expect(await asked).toBe(false);
+    const escape = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
+    $("#ext-accept").dispatchEvent(escape);
+    expect(escape.defaultPrevented).toBe(false);
+  });
+
   it("takes down a confirmation the agent withdrew, without answering it", () => {
     const { confirm, respond, note, open, accept } = modal();
     confirm.show("1", { title: "Confirm", message: "Delete history h1" });

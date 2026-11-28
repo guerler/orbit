@@ -6,6 +6,8 @@ export interface ConfirmDeps {
   respond: (confirmId: string, approved: boolean) => void;
   /** Say in chat what was decided. */
   note: (text: string) => void;
+  /** Takes down whatever is on screen once the page is disposed. */
+  signal?: AbortSignal;
 }
 
 /** The id of a question the page asks for itself; the agent's ids are numbers. */
@@ -25,6 +27,7 @@ export function createConfirm(deps: ConfirmDeps) {
 
   /** The confirmation on screen, and how to take it down without answering it. */
   let shown: { id: string; close: () => void } | undefined;
+  deps.signal?.addEventListener("abort", () => shown?.close());
 
   // One at a time, listeners torn down on answer, Escape reads as no.
   function open(

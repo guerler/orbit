@@ -336,6 +336,34 @@ describe("local continuity", () => {
 
     expect((await one.open((await saved.load(id))!.document, id)).id).toBe(conversation.id);
   });
+
+  it("marks a save as the conversation stood when exported, not after a turn that came since", async () => {
+    const { saved } = world();
+    const one = await machine();
+    const conversation = await one.create({ historyId: "h1" });
+    await say(one, conversation, "saved state");
+    const document = await one.export(conversation);
+    await say(one, conversation, "turn during the save");
+    const id = await saved.save(document);
+    await one.saved(conversation, id, document);
+
+    const reopened = await one.open((await saved.load(id))!.document, id);
+    expect(reopened.id).not.toBe(conversation.id);
+    expect(said(await one.export(reopened))).toEqual(["saved state"]);
+  });
+
+  it("says which save holds a conversation the browser kept", async () => {
+    const { saved } = world();
+    const one = await machine();
+    const conversation = await one.create({ historyId: "h1" });
+    expect(await one.savedAs(conversation)).toBeUndefined();
+    await say(one, conversation, "saved state");
+    const document = await one.export(conversation);
+    const id = await saved.save(document);
+    await one.saved(conversation, `chat/${id}`, document);
+    const kept = (await one.kept({ historyId: "h1" }))!;
+    expect(await one.savedAs(kept)).toBe(`chat/${id}`);
+  });
 });
 
 describe("artifacts across a compaction", () => {

@@ -149,6 +149,8 @@ interface Current {
 export class Runtime {
   /** Why Galaxy did not answer when the session opened, when it did not. */
   galaxyProblem?: string;
+  /** The newest entry of the last export: a save holds the conversation as it was then. */
+  private exportedLast?: number;
   private constructor(
     readonly harness: Harness,
     readonly galaxy: Galaxy,
@@ -395,6 +397,7 @@ export class Runtime {
 
   /** The conversation as a saved session: its context, and what binds it to Galaxy. */
   async export(conversation: Conversation, title = ""): Promise<SessionDocument> {
+    const last = await lastEntry(conversation);
     const [exported, bound, usage] = await Promise.all([
       exportEntries(conversation),
       this.harness.snapshot(Binding, conversation.id, context),
@@ -402,6 +405,7 @@ export class Runtime {
     ]);
     const totals = Object.values(usage?.models ?? {});
     const now = new Date().toISOString();
+    this.exportedLast = last;
     const build = thisBuild();
     return {
       olit_session: SCHEMA,
@@ -471,13 +475,20 @@ export class Runtime {
       },
       context,
     );
-    await this.saved(opened, savedId, document);
+    await this.saved(opened, savedId, document, await lastEntry(opened));
     return opened;
   }
 
-  /** Remember that this conversation, as it stands, is what `savedId` holds. */
-  async saved(conversation: Conversation, savedId: string, document: SessionDocument) {
-    const last = await lastEntry(conversation);
+  /**
+   * Remember that `savedId` holds `document`: the conversation as it stood at its newest entry
+   * `last`, by default when it was last exported, before any follow-up that ran during the save.
+   */
+  async saved(
+    conversation: Conversation,
+    savedId: string,
+    document: SessionDocument,
+    last = this.exportedLast,
+  ) {
     await this.harness.commit(async (tx) => {
       (await tx.doc(Sessions)).bySaved[savedId] = {
         conversation: conversation.id,
@@ -485,6 +496,15 @@ export class Runtime {
         ...(last === undefined ? {} : { last }),
       };
     }, context);
+  }
+
+  /** The newest save that holds `conversation`, if any. */
+  async savedAs(conversation: Conversation): Promise<string | undefined> {
+    const index = await this.harness.snapshot(Sessions, context);
+    const saves = Object.entries(index?.bySaved ?? {}).filter(
+      ([, save]) => save.conversation === conversation.id,
+    );
+    return saves.sort(([, a], [, b]) => a.updatedAt.localeCompare(b.updatedAt)).at(-1)?.[0];
   }
 
   close() {

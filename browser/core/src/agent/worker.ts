@@ -47,6 +47,8 @@ export type WorkerMessage =
       galaxyProblem?: string;
       /** Why the history's earlier records could not be looked up. */
       recordsProblem?: string;
+      /** The newest save holding the conversation shown, keyed as the page keys saves. */
+      savedAs?: string;
     }
   /** No session kept here, but the launch history has records of this brand to choose from. */
   | { type: "recoverable"; records: RecordSummary[] }
@@ -240,6 +242,7 @@ async function begin(next: Conversation, unkept?: string, recordsProblem?: strin
     galaxy: runtime!.galaxyStatus,
     galaxyProblem: runtime!.galaxyProblem,
     recordsProblem,
+    savedAs: await runtime!.savedAs(next),
   });
 }
 
@@ -278,8 +281,9 @@ export function startAgentWorker(agentFlavor: AgentFlavor): void {
 
 function onMessage({ data }: MessageEvent<PageMessage>) {
   if (data.type === "open") {
-    // Outside the order: it may wait for another tab's lock, and "Use it here" opens again.
-    open(data.request).catch(failed);
+    // Outside the order: it may wait for another tab's lock, and "Use it here" opens again
+    // until this tab has the session.
+    if (!runtime) open(data.request).catch(failed);
   } else if (data.type === "confirmed") {
     const waiting = confirms.get(data.id);
     confirms.delete(data.id);
